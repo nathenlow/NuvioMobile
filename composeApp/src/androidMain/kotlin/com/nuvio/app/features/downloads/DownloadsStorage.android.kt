@@ -7,6 +7,7 @@ import com.nuvio.app.core.storage.ProfileScopedKey
 internal actual object DownloadsStorage {
     private const val preferencesName = "nuvio_downloads"
     private const val payloadKey = "downloads_payload"
+    private const val preferredResolutionKey = "preferred_download_resolution"
     private const val maxConcurrentKey = "max_concurrent_downloads"
     private const val fullEpisodeListKey = "save_full_episode_list"
     private const val storageVolumeKey = "download_storage_volume"
@@ -43,6 +44,13 @@ internal actual object DownloadsStorage {
 
     actual fun saveStorageVolumeId(value: String) {
         preferences?.edit()?.putString(storageVolumeKey, value)?.apply()
+    }
+
+    actual fun loadPreferredResolution(): Int? =
+        preferences?.takeIf { it.contains(preferredResolutionKey) }?.getInt(preferredResolutionKey, 0)
+
+    actual fun savePreferredResolution(value: Int) {
+        preferences?.edit()?.putInt(preferredResolutionKey, value)?.apply()
     }
 
     actual fun saveMaxConcurrentDownloads(value: Int) {

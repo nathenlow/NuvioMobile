@@ -44,6 +44,9 @@ object DownloadsRepository {
 
     private val _maxConcurrentDownloads = MutableStateFlow(DEFAULT_MAX_CONCURRENT_DOWNLOADS)
     val maxConcurrentDownloads: StateFlow<Int> = _maxConcurrentDownloads.asStateFlow()
+    private val _preferredResolution = MutableStateFlow(0)
+    /** The resolution bulk downloads prefer among cached streams; 0 follows the addon ranking only. */
+    val preferredResolution: StateFlow<Int> = _preferredResolution.asStateFlow()
     private var hasLoaded = false
     private var nextDownloadOrdinal = 0L
 
@@ -702,6 +705,7 @@ object DownloadsRepository {
             ?.coerceIn(MIN_CONCURRENT_DOWNLOADS, MAX_CONCURRENT_DOWNLOADS)
             ?: DEFAULT_MAX_CONCURRENT_DOWNLOADS
         _saveFullEpisodeList.value = DownloadsStorage.loadSaveFullEpisodeList() ?: true
+        _preferredResolution.value = DownloadsStorage.loadPreferredResolution()?.takeIf { it in PREFERRED_RESOLUTION_CHOICES } ?: 0
         startQueue.clear()
         _hasUnseenCompleted.value = false
         hasLoaded = true
@@ -905,6 +909,13 @@ object DownloadsRepository {
      * Turns saving of every episode's details on or off. Off drops what was saved, so offline pages go
      * back to listing only the downloaded episodes; on fills it in again from the details pages.
      */
+    fun setPreferredResolution(height: Int) {
+        ensureLoaded()
+        val value = height.takeIf { it in PREFERRED_RESOLUTION_CHOICES } ?: 0
+        _preferredResolution.value = value
+        DownloadsStorage.savePreferredResolution(value)
+    }
+
     fun setSaveFullEpisodeList(enabled: Boolean) {
         ensureLoaded()
         _saveFullEpisodeList.value = enabled

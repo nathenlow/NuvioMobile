@@ -272,6 +272,10 @@ internal fun autoSelect(groups: List<AddonStreamGroup>): StreamItem? {
     val candidates = groups.flatMap { it.downloadableStreams() }
     if (candidates.isEmpty()) return null
 
+    // A cached stream at the preferred resolution wins; without one, the addon ranking below decides.
+    DownloadsRepository.ensureLoaded()
+    pickPreferredResolution(candidates, DownloadsRepository.preferredResolution.value)?.let { return it }
+
     PlayerSettingsRepository.ensureLoaded()
     val settings = PlayerSettingsRepository.uiState.value
     val debrid = DebridSettingsRepository.snapshot()

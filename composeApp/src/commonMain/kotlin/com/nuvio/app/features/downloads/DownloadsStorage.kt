@@ -7,6 +7,8 @@ internal expect object DownloadsStorage {
     fun saveMaxConcurrentDownloads(value: Int)
     fun loadSaveFullEpisodeList(): Boolean?
     fun saveSaveFullEpisodeList(value: Boolean)
+    fun loadPreferredResolution(): Int?
+    fun savePreferredResolution(value: Int)
     fun loadStorageVolumeId(): String?
     fun saveStorageVolumeId(value: String)
 }

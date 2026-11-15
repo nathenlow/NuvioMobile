@@ -19,6 +19,7 @@ import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.downloads.DownloadStorageMigrationDialog
 import com.nuvio.app.features.downloads.DownloadStorageSheet
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.PREFERRED_RESOLUTION_CHOICES
 import com.nuvio.app.features.downloads.downloadStorageName
 import com.nuvio.app.features.downloads.formatStorageBytes
 import com.nuvio.app.features.downloads.MAX_CONCURRENT_DOWNLOADS
@@ -53,6 +54,10 @@ import nuvio.composeapp.generated.resources.downloads_storage_free
 import nuvio.composeapp.generated.resources.downloads_storage_title
 import nuvio.composeapp.generated.resources.downloads_verify_unavailable
 import nuvio.composeapp.generated.resources.downloads_concurrent_title
+import nuvio.composeapp.generated.resources.downloads_resolution_auto
+import nuvio.composeapp.generated.resources.downloads_resolution_description
+import nuvio.composeapp.generated.resources.downloads_resolution_title
+import nuvio.composeapp.generated.resources.downloads_resolution_value
 import nuvio.composeapp.generated.resources.downloads_full_episode_list_description
 import nuvio.composeapp.generated.resources.downloads_full_episode_list_title
 import nuvio.composeapp.generated.resources.downloads_verify_action
@@ -189,6 +194,7 @@ private fun DownloadSettingsSection(isTablet: Boolean) {
         DownloadsRepository.maxConcurrentDownloads
     }.collectAsStateWithLifecycle()
     val saveFullEpisodeList by DownloadsRepository.saveFullEpisodeList.collectAsStateWithLifecycle()
+    val preferredResolution by DownloadsRepository.preferredResolution.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var verifying by remember { mutableStateOf(false) }
     var showStorageSheet by remember { mutableStateOf(false) }
@@ -262,6 +268,21 @@ private fun DownloadSettingsSection(isTablet: Boolean) {
                     onClick = { showStorageSheet = true },
                 )
             }
+            SettingsGroupDivider(isTablet = isTablet)
+            // Taps step through the choices: addon ranking only, 4K, 1080p, 720p, 480p.
+            SettingsNavigationRow(
+                title = stringResource(Res.string.downloads_resolution_title),
+                description = (
+                    if (preferredResolution == 0) stringResource(Res.string.downloads_resolution_auto)
+                    else stringResource(Res.string.downloads_resolution_value, preferredResolution)
+                    ) + "\n" + stringResource(Res.string.downloads_resolution_description),
+                isTablet = isTablet,
+                onClick = {
+                    val choices = PREFERRED_RESOLUTION_CHOICES
+                    val next = choices[(choices.indexOf(preferredResolution) + 1) % choices.size]
+                    DownloadsRepository.setPreferredResolution(next)
+                },
+            )
             SettingsGroupDivider(isTablet = isTablet)
             SettingsSwitchRow(
                 title = stringResource(Res.string.downloads_full_episode_list_title),
