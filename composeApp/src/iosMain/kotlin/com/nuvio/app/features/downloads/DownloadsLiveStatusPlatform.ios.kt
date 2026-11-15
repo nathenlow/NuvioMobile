@@ -6,6 +6,8 @@ import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSUserDefaults
+import platform.UIKit.UIApplication
+import platform.UIKit.UIApplicationState
 
 /**
  * Feeds the Live Activity with the download that is running: its show and episode, that it is
@@ -24,6 +26,9 @@ internal actual object DownloadsLiveStatusPlatform {
     private var lastPayload: String? = null
 
     actual fun onItemsChanged(items: List<DownloadItem>) {
+        // With the app in the background the queue code refreshes the activity from what is saved; the
+        // screen's view of the list is stale then and would end the activity just before the next episode starts.
+        if (UIApplication.sharedApplication.applicationState != UIApplicationState.UIApplicationStateActive) return
         publish(items, appIsAwake = true)
     }
 

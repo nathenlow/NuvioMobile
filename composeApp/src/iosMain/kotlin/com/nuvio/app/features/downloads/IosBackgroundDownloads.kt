@@ -20,6 +20,8 @@ import platform.Foundation.NSMutableURLRequest
 import platform.Foundation.NSOperationQueue
 import platform.Foundation.NSString
 import platform.Foundation.NSURL
+import platform.UIKit.UIApplication
+import platform.UIKit.UIApplicationState
 import platform.Foundation.NSURLErrorCancelled
 import platform.Foundation.NSURLRequestReloadIgnoringLocalCacheData
 import platform.Foundation.NSURLSession
@@ -268,10 +270,13 @@ internal object IosBackgroundDownloads {
      * is refreshed here, from what is saved, to show the download that is running now (or to end).
      */
     private fun refreshLiveActivityIfAppIsAway() {
-        if (callbacks.value.isNotEmpty()) return
-        // Only what is running: a download waiting in line is not shown.
-        val running = markerNames("active").mapNotNull { readItem(it) }.map { it.copy(status = DownloadStatus.Downloading) }
-        DownloadsLiveStatusPlatform.onBackgroundItems(running)
+        dispatch_async(dispatch_get_main_queue()) {
+            // While the screen is open the app itself keeps the activity up to date.
+            if (UIApplication.sharedApplication.applicationState == UIApplicationState.UIApplicationStateActive) return@dispatch_async
+            // Only what is running: a download waiting in line is not shown.
+            val running = markerNames("active").mapNotNull { readItem(it) }.map { it.copy(status = DownloadStatus.Downloading) }
+            DownloadsLiveStatusPlatform.onBackgroundItems(running)
+        }
     }
 
     /** A local notification for a download that finished while the app was away. */
