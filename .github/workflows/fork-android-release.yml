@@ -1,10 +1,14 @@
-name: Fork Android Release
+name: Fork Release
 
-# Builds the signed Android APKs and publishes them as a GitHub release of THIS repository.
-# The in-app updater (features/updater/AppUpdaterRepository.kt, UPDATE_REPOSITORY) reads the
-# latest release of this repository, so the tag must be the app version with an optional leading v, for example v0.6.14.
+# Builds the signed Android APKs and an UNSIGNED iOS IPA, and publishes both as one GitHub release of
+# THIS repository, under one version. The in-app updater (features/updater/AppUpdaterRepository.kt,
+# UPDATE_REPOSITORY) reads the latest release of this repository, so the tag must be the app version
+# with an optional leading v, for example v0.6.14.
 #
 # Run it from the Actions tab ("Run workflow"), or push a tag such as v0.6.14.
+#
+# The iOS IPA is not signed: install it with a sideloading tool (AltStore, Sideloadly, ...), which
+# signs it with your own Apple ID. Turn the iOS build off with the "ios" input when it is not needed.
 #
 # Required repository secrets (Settings > Secrets and variables > Actions):
 #   FORK_RELEASE_KEYSTORE_BASE64   the release keystore, base64 encoded:  base64 -i release.jks | pbcopy
@@ -15,6 +19,9 @@ name: Fork Android Release
 #   NUVIO_SUPABASE_ANON_KEY        the backend's publishable key
 # Optional secret:
 #   FORK_EXTRA_PROPERTIES          more local.properties lines, one per line (TRAKT_CLIENT_ID=..., TMDB_API_KEY=...)
+# Optional repository variable:
+#   FORK_IOS_RUNNER                the macOS runner label for the iOS build (default macos-latest). The
+#                                  project needs a recent Xcode: pick a runner image that has it.
 
 on:
   workflow_dispatch:
@@ -23,6 +30,11 @@ on:
         description: App version without a leading v (empty = MARKETING_VERSION from iosApp/Configuration/Version.xcconfig)
         required: false
         type: string
+      ios:
+        description: Also build the unsigned iOS IPA
+        required: false
+        type: boolean
+        default: true
       prerelease:
         description: Mark the release as a pre-release (only the beta update channel sees those)
         required: false
@@ -41,24 +53,19 @@ permissions:
   contents: write
 
 concurrency:
-  group: fork-android-release-${{ github.ref }}
+  group: fork-release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  build:
-    name: Build and publish APKs
+  prepare:
+    name: Work out the version
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      version_code: ${{ steps.version.outputs.version_code }}
     env:
       GH_TOKEN: ${{ github.token }}
-      KEYSTORE_BASE64: ${{ secrets.FORK_RELEASE_KEYSTORE_BASE64 }}
-      STORE_PASSWORD: ${{ secrets.FORK_RELEASE_STORE_PASSWORD }}
-      KEY_ALIAS: ${{ secrets.FORK_RELEASE_KEY_ALIAS }}
-      KEY_PASSWORD: ${{ secrets.FORK_RELEASE_KEY_PASSWORD }}
-      SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
-      SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
-      EXTRA_PROPERTIES: ${{ secrets.FORK_EXTRA_PROPERTIES }}
-
     steps:
       - name: Check out source
         uses: actions/checkout@v6
@@ -84,11 +91,11 @@ jobs:
           # Android only installs an update over an app with a lower version code, so raise it every run.
           base_code="$(sed -nE 's/^[[:space:]]*CURRENT_PROJECT_VERSION[[:space:]]*=[[:space:]]*([0-9]+).*$/\1/p' "${xcconfig}" | head -n 1)"
           version_code=$(( ${base_code:-1} + GITHUB_RUN_NUMBER ))
-          sed -i -E "s/^([[:space:]]*CURRENT_PROJECT_VERSION[[:space:]]*=[[:space:]]*)[0-9]+/\1${version_code}/" "${xcconfig}"
 
           if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then tag="${GITHUB_REF_NAME}"; else tag="v${version}"; fi
           echo "version=${version}" >> "${GITHUB_OUTPUT}"
           echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "version_code=${version_code}" >> "${GITHUB_OUTPUT}"
           echo "Building ${version} (version code ${version_code})"
 
       - name: Check the release is new
@@ -99,6 +106,30 @@ jobs:
             echo "A release for ${RELEASE_TAG} already exists. Pick a higher version." >&2
             exit 1
           fi
+
+  android:
+    name: Build Android APKs
+    needs: prepare
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      KEYSTORE_BASE64: ${{ secrets.FORK_RELEASE_KEYSTORE_BASE64 }}
+      STORE_PASSWORD: ${{ secrets.FORK_RELEASE_STORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.FORK_RELEASE_KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.FORK_RELEASE_KEY_PASSWORD }}
+      SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+      EXTRA_PROPERTIES: ${{ secrets.FORK_EXTRA_PROPERTIES }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+      VERSION_CODE: ${{ needs.prepare.outputs.version_code }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set the version code
+        run: |
+          sed -i -E "s/^([[:space:]]*CURRENT_PROJECT_VERSION[[:space:]]*=[[:space:]]*)[0-9]+/\1${VERSION_CODE}/" iosApp/Configuration/Version.xcconfig
 
       - name: Check the signing secrets
         run: |
@@ -137,13 +168,9 @@ jobs:
           } > local.properties
 
       - name: Build release APKs
-        env:
-          RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: ./gradlew :androidApp:assembleFullRelease -Pnuvio.app.versionName="${RELEASE_VERSION}" --stacktrace
 
       - name: Name the APKs
-        env:
-          RELEASE_VERSION: ${{ steps.version.outputs.version }}
         run: |
           mkdir -p dist
           shopt -s nullglob
@@ -159,20 +186,122 @@ jobs:
           done
           ls -l dist
 
-      - name: Upload APKs as a workflow artifact
+      - name: Upload APKs
         uses: actions/upload-artifact@v7
         with:
-          name: nuvio-${{ steps.version.outputs.version }}-android
+          name: nuvio-${{ needs.prepare.outputs.version }}-android
           path: dist/*.apk
           if-no-files-found: error
 
-      - name: Create the GitHub release
-        env:
-          RELEASE_TAG: ${{ steps.version.outputs.tag }}
-          RELEASE_VERSION: ${{ steps.version.outputs.version }}
-          IS_PRERELEASE: ${{ inputs.prerelease }}
-          IS_DRAFT: ${{ inputs.draft }}
+  ios:
+    name: Build unsigned iOS IPA
+    # Runs on tags, and on manual runs unless the ios input is switched off.
+    if: github.event_name == 'push' || inputs.ios
+    needs: prepare
+    runs-on: ${{ vars.FORK_IOS_RUNNER || 'macos-latest' }}
+    timeout-minutes: 120
+    env:
+      GRADLE_OPTS: -Dfile.encoding=UTF-8
+      KOTLIN_DAEMON_JVMARGS: -Xmx2048M
+      NUVIO_GRADLE_JVMARGS: -Xmx4608M -Dfile.encoding=UTF-8 -XX:MaxMetaspaceSize=768M
+      NUVIO_KOTLIN_NATIVE_JVMARGS: -Xmx4608M
+      SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+      EXTRA_PROPERTIES: ${{ secrets.FORK_EXTRA_PROPERTIES }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+      VERSION_CODE: ${{ needs.prepare.outputs.version_code }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Set the build number
         run: |
+          sed -i '' -E "s/^([[:space:]]*CURRENT_PROJECT_VERSION[[:space:]]*=[[:space:]]*)[0-9]+/\1${VERSION_CODE}/" iosApp/Configuration/Version.xcconfig
+
+      - name: Check the secrets
+        run: |
+          for name in SUPABASE_URL SUPABASE_ANON_KEY; do
+            if [[ -z "${!name}" ]]; then
+              echo "Missing repository secret NUVIO_${name} (see the comment at the top of this workflow)." >&2
+              exit 1
+            fi
+          done
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Cache Kotlin Native
+        uses: actions/cache@v5
+        with:
+          path: ~/.konan
+          key: konan-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('gradle/libs.versions.toml') }}
+          restore-keys: |
+            konan-${{ runner.os }}-${{ runner.arch }}-
+
+      - name: Show the Apple toolchain
+        run: |
+          xcodebuild -version
+          xcrun --sdk iphoneos --show-sdk-version
+
+      - name: Write local.properties
+        run: |
+          {
+            echo "NUVIO_SUPABASE_URL=${SUPABASE_URL}"
+            echo "NUVIO_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}"
+            if [[ -n "${EXTRA_PROPERTIES}" ]]; then
+              printf '%s\n' "${EXTRA_PROPERTIES}"
+            fi
+          } > local.properties
+
+      - name: Prepare iOS dependencies
+        run: ./scripts/prepare-ios-dependencies.sh
+
+      - name: Build the unsigned IPA
+        run: ./scripts/build-ios-ipa.sh "${RELEASE_VERSION}"
+
+      - name: Upload the IPA
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuvio-${{ needs.prepare.outputs.version }}-ios
+          path: build/ios-ipa/*-full-release.ipa
+          if-no-files-found: error
+
+  release:
+    name: Create the GitHub release
+    # Waits for the iOS build when there is one, and carries on without it when it was switched off.
+    if: ${{ !cancelled() && needs.prepare.result == 'success' && needs.android.result == 'success' && (needs.ios.result == 'success' || needs.ios.result == 'skipped') }}
+    needs: [prepare, android, ios]
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RELEASE_TAG: ${{ needs.prepare.outputs.tag }}
+      RELEASE_VERSION: ${{ needs.prepare.outputs.version }}
+      IS_PRERELEASE: ${{ inputs.prerelease }}
+      IS_DRAFT: ${{ inputs.draft }}
+
+    steps:
+      - name: Download the packages
+        uses: actions/download-artifact@v8
+        with:
+          path: release-assets
+          merge-multiple: true
+
+      - name: Create the GitHub release
+        run: |
+          mapfile -t files < <(find release-assets -maxdepth 1 -type f \( -name '*.apk' -o -name '*.ipa' \) -print | sort)
+          if (( ${#files[@]} == 0 )); then
+            echo "No packages to release." >&2
+            exit 1
+          fi
+          ls -l release-assets
+
           args=(
             "${RELEASE_TAG}"
             --repo "${GITHUB_REPOSITORY}"
@@ -188,4 +317,4 @@ jobs:
           if [[ "${IS_DRAFT}" == "true" ]]; then
             args+=(--draft)
           fi
-          gh release create "${args[@]}" dist/*.apk
+          gh release create "${args[@]}" "${files[@]}"
