@@ -19,6 +19,8 @@ data class StreamLaunch(
     val resumeProgressFraction: Float? = null,
     val manualSelection: Boolean = false,
     val startFromBeginning: Boolean = false,
+    /** When set, the stream route opens this stream straight away instead of waiting for a pick. */
+    val preselectedStream: StreamItem? = null,
 )
 
 object StreamLaunchStore {
@@ -32,6 +34,17 @@ object StreamLaunchStore {
     }
 
     fun get(launchId: Long): StreamLaunch? = launches[launchId]
+
+    /**
+     * Hands out the launch's preselected stream once and clears it, so a stream screen that is
+     * created again after the player closes does not open the same stream a second time.
+     */
+    fun consumePreselectedStream(launchId: Long): StreamItem? {
+        val launch = launches[launchId] ?: return null
+        val stream = launch.preselectedStream ?: return null
+        launches[launchId] = launch.copy(preselectedStream = null)
+        return stream
+    }
 
     fun remove(launchId: Long) {
         launches.remove(launchId)

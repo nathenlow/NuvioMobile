@@ -125,6 +125,7 @@ internal class AndroidDownloadScheduler(val context: Context) {
                 if (store.get(fileName) == null) {
                     File(directory, "$fileName.part").delete()
                     DownloadSubtitleStorage(File(directory, fileName).toURI().toString()).remove()
+                    DownloadArtworkStorage(File(directory, fileName).toURI().toString()).remove()
                 }
             }
         }
@@ -152,6 +153,7 @@ internal class AndroidDownloadScheduler(val context: Context) {
         } else downloadHttpClient
         try {
             DownloadSubtitles.prepare(transfer.item, destination.toURI().toString())
+            DownloadArtwork.prepare(transfer.item, destination.toURI().toString())
             currentCoroutineContext().ensureActive()
             if (!isActive(transfer)) return@withLock false
             var lastProgressAt = 0L

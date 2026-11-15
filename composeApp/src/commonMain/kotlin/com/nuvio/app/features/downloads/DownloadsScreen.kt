@@ -1,6 +1,21 @@
 package com.nuvio.app.features.downloads
 
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.animation.core.animateDpAsState
+import androidx.compose.foundation.lazy.rememberLazyListState
+import androidx.compose.material.icons.rounded.DragHandle
+import androidx.compose.material.icons.rounded.VerticalAlignTop
+import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.rememberSwipeToDismissBoxState
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
+import sh.calvin.reorderable.ReorderableItem
+import sh.calvin.reorderable.ReorderableLazyListState
+import sh.calvin.reorderable.rememberReorderableLazyListState
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -23,6 +38,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -43,6 +59,8 @@ import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioStatusModal
 import com.nuvio.app.core.ui.NuvioToastController
 import nuvio.composeapp.generated.resources.*
+import kotlinx.coroutines.launch
+import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -63,6 +81,9 @@ fun DownloadsScreen(
 
     var selectedShowId by rememberSaveable(initialShowId) { mutableStateOf(initialShowId) }
     var downloadPendingDeletionId by rememberSaveable { mutableStateOf<String?>(null) }
+    var confirmCancelAll by rememberSaveable { mutableStateOf(false) }
+    var seriesActionTarget by remember { mutableStateOf<DownloadItem?>(null) }
+    val cancelledCountScope = androidx.compose.runtime.rememberCoroutineScope()
     val openDownloadsDirectoryFailedText = stringResource(Res.string.downloads_open_directory_failed)
 
     val completedEpisodes = remember(uiState.items) {
@@ -77,7 +98,19 @@ fun DownloadsScreen(
         }
     }
 
-    NuvioScreen {
+    val listState = rememberLazyListState()
+    val reorderHaptics = LocalHapticFeedback.current
+    val reorderState = rememberReorderableLazyListState(listState) { from, to ->
+        val activeIds = DownloadsRepository.uiState.value.activeItems.mapTo(hashSetOf()) { it.id }
+        val fromId = from.key as? String
+        val toId = to.key as? String
+        if (fromId != null && toId != null && fromId in activeIds && toId in activeIds) {
+            DownloadsRepository.moveDownload(fromId, toId)
+            reorderHaptics.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+        }
+    }
+
+    NuvioScreen(listState = listState) {
         stickyHeader {
             NuvioScreenHeader(
                 title = if (selectedShowId == null) {
@@ -117,6 +150,10 @@ fun DownloadsScreen(
                     onNavigateToShow?.invoke(showId, title) ?: run { selectedShowId = showId }
                 },
                 onDeleteDownload = { downloadPendingDeletionId = it },
+                onCancelAll = { confirmCancelAll = true },
+                onResumeAll = { DownloadsRepository.resumeAllDownloads() },
+                onLongPressDownload = { item -> if (item.isEpisode) seriesActionTarget = item },
+                reorderState = reorderState,
             )
         } else {
             downloadsShowContent(
@@ -126,6 +163,46 @@ fun DownloadsScreen(
                 onDeleteDownload = { downloadPendingDeletionId = it },
             )
         }
+    }
+
+    seriesActionTarget?.let { target ->
+        SeriesDownloadActionsSheet(
+            seriesTitle = target.title,
+            onDismiss = { seriesActionTarget = null },
+            onMoveEpisodeToTop = { DownloadsRepository.moveToTop(target.id) },
+            onMoveSeriesToTop = { DownloadsRepository.moveSeriesToTop(target.parentMetaId) },
+            onCancelSeries = {
+                val count = DownloadsRepository.cancelUnfinishedDownloads(target.parentMetaId)
+                cancelledCountScope.launch {
+                    NuvioToastController.show(
+                        if (count > 0) getString(Res.string.downloads_cancelled_count, count)
+                        else getString(Res.string.downloads_cancel_none),
+                    )
+                }
+            },
+        )
+    }
+
+    if (confirmCancelAll) {
+        NuvioStatusModal(
+            title = stringResource(Res.string.downloads_cancel_all_title),
+            message = stringResource(Res.string.downloads_cancel_all_message),
+            isVisible = true,
+            destructive = true,
+            confirmText = stringResource(Res.string.action_yes),
+            dismissText = stringResource(Res.string.action_no),
+            onConfirm = {
+                confirmCancelAll = false
+                val count = DownloadsRepository.cancelUnfinishedDownloads()
+                cancelledCountScope.launch {
+                    NuvioToastController.show(
+                        if (count > 0) getString(Res.string.downloads_cancelled_count, count)
+                        else getString(Res.string.downloads_cancel_none),
+                    )
+                }
+            },
+            onDismiss = { confirmCancelAll = false },
+        )
     }
 
     val pendingDeletionId = downloadPendingDeletionId
@@ -151,6 +228,10 @@ private fun LazyListScope.downloadsRootContent(
     onOpenDownload: (DownloadItem) -> Unit,
     onOpenShow: (showId: String, title: String) -> Unit,
     onDeleteDownload: (String) -> Unit,
+    onCancelAll: () -> Unit,
+    onResumeAll: () -> Unit,
+    onLongPressDownload: (DownloadItem) -> Unit,
+    reorderState: ReorderableLazyListState,
 ) {
     val activeItems = uiState.activeItems
     val completedMovies = uiState.completedItems.filterNot(DownloadItem::isEpisode)
@@ -166,20 +247,65 @@ private fun LazyListScope.downloadsRootContent(
 
     if (activeItems.isNotEmpty()) {
         item {
-            SectionTitle(stringResource(Res.string.downloads_section_active))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                SectionTitle(stringResource(Res.string.downloads_section_active))
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    TextButton(onClick = onResumeAll) {
+                        Text(stringResource(Res.string.downloads_resume_all))
+                    }
+                    TextButton(onClick = onCancelAll) {
+                        Text(stringResource(Res.string.downloads_cancel_all))
+                    }
+                }
+            }
         }
         items(
             items = activeItems,
             key = { it.id },
         ) { item ->
-            DownloadRow(
-                item = item,
-                onOpen = { onOpenDownload(item) },
-                onPause = { DownloadsRepository.pauseDownload(item.id) },
-                onResume = { DownloadsRepository.resumeDownload(item.id) },
-                onRetry = { DownloadsRepository.retryDownload(item.id) },
-                onDelete = { onDeleteDownload(item.id) },
-            )
+            ReorderableItem(reorderState, key = item.id) { isDragging ->
+                val elevation by animateDpAsState(if (isDragging) 6.dp else 0.dp)
+                val dragHaptics = LocalHapticFeedback.current
+                val itemScope = this
+                SwipeToPrioritizeBox(
+                    canMoveSeries = item.isEpisode,
+                    onMoveToTop = { DownloadsRepository.moveToTop(item.id) },
+                    onMoveSeriesToTop = { DownloadsRepository.moveSeriesToTop(item.parentMetaId) },
+                ) {
+                    Surface(shadowElevation = elevation) {
+                        DownloadRow(
+                            item = item,
+                            onOpen = { onOpenDownload(item) },
+                            onPause = { DownloadsRepository.pauseDownload(item.id) },
+                            onResume = { DownloadsRepository.resumeDownload(item.id) },
+                            onRetry = { DownloadsRepository.retryDownload(item.id) },
+                            onDelete = { onDeleteDownload(item.id) },
+                            queued = item.id in uiState.queuedIds,
+                            onLongPress = { onLongPressDownload(item) },
+                            dragHandle = {
+                                Icon(
+                                    imageVector = Icons.Rounded.DragHandle,
+                                    contentDescription = stringResource(Res.string.downloads_drag_to_reorder),
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = with(itemScope) {
+                                        Modifier
+                                            .draggableHandle(
+                                                onDragStarted = {
+                                                    dragHaptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                },
+                                            )
+                                            .padding(horizontal = 8.dp, vertical = 12.dp)
+                                    },
+                                )
+                            },
+                        )
+                    }
+                }
+            }
         }
     }
 
@@ -336,6 +462,7 @@ private fun LazyListScope.downloadsShowContent(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 private fun DownloadRow(
     item: DownloadItem,
@@ -344,6 +471,9 @@ private fun DownloadRow(
     onResume: () -> Unit,
     onRetry: () -> Unit,
     onDelete: () -> Unit,
+    queued: Boolean = false,
+    onLongPress: (() -> Unit)? = null,
+    dragHandle: (@Composable () -> Unit)? = null,
 ) {
     val displayTitle = item.displayTitle()
     val displaySubtitle = downloadDisplaySubtitle(
@@ -355,7 +485,11 @@ private fun DownloadRow(
         modifier = Modifier
             .fillMaxWidth()
             .padding(horizontal = 12.dp, vertical = 6.dp)
-            .clickable(enabled = item.isPlayable, onClick = onOpen),
+            .combinedClickable(
+                enabled = item.isPlayable || onLongPress != null,
+                onClick = { if (item.isPlayable) onOpen() },
+                onLongClick = onLongPress,
+            ),
         shape = MaterialTheme.shapes.medium,
         color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
@@ -390,13 +524,18 @@ private fun DownloadRow(
                         overflow = TextOverflow.Ellipsis,
                     )
                     Text(
-                        text = statusText(item),
+                        text = if (queued && item.status == DownloadStatus.Downloading) {
+                            stringResource(Res.string.downloads_status_queued)
+                        } else {
+                            statusText(item)
+                        },
                         style = MaterialTheme.typography.labelSmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
                 }
 
                 Row(verticalAlignment = Alignment.CenterVertically) {
+                    dragHandle?.invoke()
                     when (item.status) {
                         DownloadStatus.Downloading -> {
                             IconButton(onClick = onPause) {
@@ -527,5 +666,61 @@ private fun formatBytes(bytes: Long): String {
         value >= mib -> "${((value / mib) * 10.0).toInt() / 10.0} ${localizedByteUnit("MB")}"
         value >= kib -> "${((value / kib) * 10.0).toInt() / 10.0} ${localizedByteUnit("KB")}"
         else -> "$bytes ${localizedByteUnit("B")}"
+    }
+}
+
+/**
+ * Swipe a row right to move it to the top of the queue, or left to move its whole series there.
+ * The row always settles back; only the action is applied.
+ */
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeToPrioritizeBox(
+    canMoveSeries: Boolean,
+    onMoveToTop: () -> Unit,
+    onMoveSeriesToTop: () -> Unit,
+    content: @Composable () -> Unit,
+) {
+    val state = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            when (value) {
+                SwipeToDismissBoxValue.StartToEnd -> onMoveToTop()
+                SwipeToDismissBoxValue.EndToStart -> if (canMoveSeries) onMoveSeriesToTop()
+                SwipeToDismissBoxValue.Settled -> Unit
+            }
+            false
+        },
+    )
+    SwipeToDismissBox(
+        state = state,
+        enableDismissFromEndToStart = canMoveSeries,
+        backgroundContent = {
+            val towardsEnd = state.dismissDirection == SwipeToDismissBoxValue.EndToStart
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = if (towardsEnd) Arrangement.End else Arrangement.Start,
+            ) {
+                if (state.dismissDirection != SwipeToDismissBoxValue.Settled) {
+                    Icon(
+                        imageVector = Icons.Rounded.VerticalAlignTop,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        text = stringResource(
+                            if (towardsEnd) Res.string.downloads_move_series_to_top else Res.string.downloads_swipe_to_top,
+                        ),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.padding(horizontal = 8.dp),
+                    )
+                }
+            }
+        },
+    ) {
+        content()
     }
 }

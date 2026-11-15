@@ -2,7 +2,9 @@ package com.nuvio.app.features.details
 
 import co.touchlab.kermit.Logger
 import com.nuvio.app.features.addons.AddonManifest
+import com.nuvio.app.core.network.NetworkStatusRepository
 import com.nuvio.app.features.addons.AddonRepository
+import com.nuvio.app.features.downloads.savedTitleDetails
 import com.nuvio.app.features.addons.buildAddonResourceUrl
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.addons.fetchAddonResponseText
@@ -54,6 +56,17 @@ object MetaDetailsRepository {
     val uiState: StateFlow<MetaDetailsUiState> = _uiState.asStateFlow()
     private var activeRequestKey: String? = null
     private val cachedMetaByRequestKey = mutableMapOf<String, CachedMetaEntry>()
+
+    /** Set while the page shows details saved with downloads, so coming back online loads the real ones. */
+    private var offlineFallbackKey: String? = null
+
+    private fun publishOfflineFallback(requestKey: String, id: String): Boolean {
+        val saved = com.nuvio.app.features.downloads.DownloadsRepository.savedTitleDetails(id) ?: return false
+        offlineFallbackKey = requestKey
+        activeRequestKey = null
+        _uiState.value = MetaDetailsUiState(meta = saved)
+        return true
+    }
 
     fun load(type: String, id: String) {
         log.d { "load() called — type=$type id=$id" }
@@ -110,7 +123,17 @@ object MetaDetailsRepository {
             return
         }
 
-        if (currentState.meta?.type == type && currentState.meta.id == id && !currentState.isLoading) {
+        if (
+            NetworkStatusRepository.uiState.value.isOfflineLike &&
+            publishOfflineFallback(requestKey, id)
+        ) {
+            return
+        }
+
+        if (
+            currentState.meta?.type == type && currentState.meta.id == id && !currentState.isLoading &&
+            offlineFallbackKey != requestKey
+        ) {
             log.d { "Skipping reload for cached meta — type=$type id=$id" }
             activeRequestKey = requestKey
             return
@@ -122,6 +145,7 @@ object MetaDetailsRepository {
         }
 
         activeRequestKey = requestKey
+        offlineFallbackKey = null
         _uiState.value = MetaDetailsUiState(isLoading = true)
 
         scope.launch {
@@ -143,6 +167,7 @@ object MetaDetailsRepository {
                 }
 
                 log.w { "No addon provides meta for type=$type id=$id" }
+                if (publishOfflineFallback(requestKey, id)) return@launch
                 _uiState.value = MetaDetailsUiState(
                     errorMessage = getString(Res.string.details_no_addon_meta),
                 )
@@ -180,6 +205,7 @@ object MetaDetailsRepository {
                 return@launch
             }
 
+            if (publishOfflineFallback(requestKey, id)) return@launch
             _uiState.value = MetaDetailsUiState(
                 errorMessage = getString(Res.string.details_load_failed_all_addons),
             )

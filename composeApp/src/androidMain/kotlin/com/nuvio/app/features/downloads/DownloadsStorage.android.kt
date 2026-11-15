@@ -7,6 +7,8 @@ import com.nuvio.app.core.storage.ProfileScopedKey
 internal actual object DownloadsStorage {
     private const val preferencesName = "nuvio_downloads"
     private const val payloadKey = "downloads_payload"
+    private const val maxConcurrentKey = "max_concurrent_downloads"
+    private const val fullEpisodeListKey = "save_full_episode_list"
 
     private var preferences: SharedPreferences? = null
 
@@ -22,5 +24,20 @@ internal actual object DownloadsStorage {
             ?.edit()
             ?.putString(ProfileScopedKey.of(payloadKey), payload)
             ?.apply()
+    }
+
+    // A device-wide setting, so it is not scoped to the active profile.
+    actual fun loadMaxConcurrentDownloads(): Int? =
+        preferences?.takeIf { it.contains(maxConcurrentKey) }?.getInt(maxConcurrentKey, 0)
+
+    actual fun loadSaveFullEpisodeList(): Boolean? =
+        preferences?.takeIf { it.contains(fullEpisodeListKey) }?.getBoolean(fullEpisodeListKey, true)
+
+    actual fun saveSaveFullEpisodeList(value: Boolean) {
+        preferences?.edit()?.putBoolean(fullEpisodeListKey, value)?.apply()
+    }
+
+    actual fun saveMaxConcurrentDownloads(value: Int) {
+        preferences?.edit()?.putInt(maxConcurrentKey, value)?.apply()
     }
 }

@@ -75,6 +75,9 @@ internal actual object DownloadsPlatformDownloader {
         return runCatching { file.delete() }.getOrDefault(false)
     }
 
+    actual fun listDownloadEntries(): List<String> =
+        downloadScheduler?.directory?.list()?.toList().orEmpty()
+
     actual fun removePartialFile(destinationFileName: String): Boolean {
         val scheduler = downloadScheduler ?: return false
         scheduler.remove(destinationFileName)

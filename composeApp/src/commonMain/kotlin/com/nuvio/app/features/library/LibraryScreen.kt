@@ -67,6 +67,11 @@ import com.nuvio.app.core.ui.NuvioDropdownOption
 import com.nuvio.app.core.ui.NuvioNetworkOfflineCard
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
+import com.nuvio.app.core.ui.NuvioStatusModal
+import com.nuvio.app.features.downloads.DownloadedTitle
+import com.nuvio.app.features.downloads.DownloadedTitleActionsSheet
+import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.toDownloadedTitles
 import com.nuvio.app.core.ui.NuvioShelfSection
 import com.nuvio.app.core.ui.NuvioViewAllPillSize
 import com.nuvio.app.core.ui.ScopedDisintegrationTracker
@@ -114,6 +119,7 @@ fun LibraryScreen(
     onPreviewClick: ((MetaPreview) -> Unit)? = null,
     onPreviewLongClick: ((MetaPreview) -> Unit)? = null,
     onDownloadsClick: (() -> Unit)? = null,
+    onDownloadedTitleClick: ((DownloadedTitle) -> Unit)? = null,
     disintegrationRequest: DisintegrationRequest<String>? = null,
 ) {
     val uiState by remember {
@@ -149,11 +155,30 @@ fun LibraryScreen(
         ServerRepository.uiState
     }.collectAsStateWithLifecycle()
     val hasServers = serversUiState.connections.any { it.enabled }
+    val downloadsUiState by remember {
+        DownloadsRepository.ensureLoaded()
+        DownloadsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val downloadedTitles = remember(downloadsUiState.items, downloadsUiState.artworkRevision) {
+        downloadsUiState.items.toDownloadedTitles()
+    }
+    var downloadedTitleActions by remember { mutableStateOf<DownloadedTitle?>(null) }
+    var downloadedTitleToDelete by remember { mutableStateOf<DownloadedTitle?>(null) }
     var sourceModeName by rememberSaveable { mutableStateOf(LibraryViewMode.Saved.name) }
     val sourceMode = remember(sourceModeName, hasServers) {
         runCatching { LibraryViewMode.valueOf(sourceModeName) }.getOrDefault(LibraryViewMode.Saved)
             .takeUnless { it == LibraryViewMode.Servers && !hasServers }
             ?: LibraryViewMode.Saved
+    }
+    LaunchedEffect(sourceMode == LibraryViewMode.Downloads) {
+        if (sourceMode == LibraryViewMode.Downloads) DownloadsRepository.backfillArtwork()
+    }
+    // Offline launch (or any caller) can ask for the downloaded view.
+    LaunchedEffect(DownloadLibraryRequest.pending) {
+        if (DownloadLibraryRequest.pending) {
+            sourceModeName = LibraryViewMode.Downloads.name
+            DownloadLibraryRequest.consume()
+        }
     }
     var serverShelves by remember { mutableStateOf<List<LibraryServerShelf>?>(null) }
     var serverShelvesRequest by remember { mutableStateOf(0) }
@@ -294,6 +319,29 @@ fun LibraryScreen(
         emptyList()
     }
 
+    downloadedTitleActions?.let { target ->
+        DownloadedTitleActionsSheet(
+            title = target.title,
+            onDismiss = { downloadedTitleActions = null },
+            onDelete = { downloadedTitleToDelete = target },
+        )
+    }
+    downloadedTitleToDelete?.let { target ->
+        NuvioStatusModal(
+            title = stringResource(Res.string.downloads_library_delete_title),
+            message = stringResource(Res.string.downloads_library_delete_message),
+            isVisible = true,
+            destructive = true,
+            confirmText = stringResource(Res.string.action_yes),
+            dismissText = stringResource(Res.string.action_no),
+            onConfirm = {
+                downloadedTitleToDelete = null
+                DownloadsRepository.deleteTitleDownloads(target.metaId)
+            },
+            onDismiss = { downloadedTitleToDelete = null },
+        )
+    }
+
     BoxWithConstraints(modifier = modifier.fillMaxSize()) {
         val gridColumns = remember(maxWidth) { posterGridColumnCountForWidth(maxWidth) }
 
@@ -414,6 +462,12 @@ fun LibraryScreen(
                     onBackToItems = { selectedCloudItemKey = null },
                     onRefresh = { CloudLibraryRepository.refresh() },
                     onConnectCloudClick = onConnectCloudClick,
+                )
+            } else if (sourceMode == LibraryViewMode.Downloads) {
+                downloadedLibraryContent(
+                    titles = downloadedTitles,
+                    onTitleClick = { onDownloadedTitleClick?.invoke(it) },
+                    onTitleLongClick = { downloadedTitleActions = it },
                 )
             } else if (sourceMode == LibraryViewMode.Servers) {
                 serverLibraryContent(
@@ -752,6 +806,11 @@ private fun LibrarySourceSwitch(
             label = stringResource(Res.string.library_source_cloud),
             selected = selectedMode == LibraryViewMode.Cloud,
             onClick = { onModeSelected(LibraryViewMode.Cloud) },
+        )
+        LibraryChip(
+            label = stringResource(Res.string.downloads_library_chip),
+            selected = selectedMode == LibraryViewMode.Downloads,
+            onClick = { onModeSelected(LibraryViewMode.Downloads) },
         )
         if (showServers) {
             LibraryChip(
@@ -1224,6 +1283,7 @@ private enum class LibraryViewMode {
     Saved,
     Cloud,
     Servers,
+    Downloads,
 }
 
 private fun LazyListScope.librarySections(

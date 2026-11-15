@@ -30,4 +30,7 @@ internal expect object DownloadsPlatformDownloader {
     fun resolveLocalFileUri(localFileUri: String?, destinationFileName: String): String?
 
     fun openDownloadsDirectory(): Boolean
+
+    /** Names of everything in the downloads folder: videos, partial files and their side folders. */
+    fun listDownloadEntries(): List<String>
 }

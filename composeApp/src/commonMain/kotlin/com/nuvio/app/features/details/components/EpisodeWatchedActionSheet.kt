@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.CheckCircle
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DoneAll
 import androidx.compose.material.icons.filled.PlayArrow
 import androidx.compose.material.icons.filled.PlaylistAddCheckCircle
@@ -67,6 +68,10 @@ fun EpisodeWatchedActionSheet(
     showPlayManually: Boolean = false,
     onPlayManually: (() -> Unit)? = null,
     ratingMedia: TrackingMediaReference? = null,
+    isDownloaded: Boolean = false,
+    onDeleteDownload: (() -> Unit)? = null,
+    hasSeriesDownloads: Boolean = false,
+    onDeleteSeriesDownloads: (() -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val coroutineScope = rememberCoroutineScope()
@@ -167,6 +172,26 @@ fun EpisodeWatchedActionSheet(
                                     }
                                 } else {
                                     null
+                                },
+                            )
+                        }
+                        if (isDownloaded && onDeleteDownload != null) {
+                            NuvioBottomSheetActionRow(
+                                icon = Icons.Default.Delete,
+                                title = stringResource(Res.string.downloads_delete_episode),
+                                onClick = {
+                                    onDeleteDownload()
+                                    dismiss()
+                                },
+                            )
+                        }
+                        if (hasSeriesDownloads && onDeleteSeriesDownloads != null) {
+                            NuvioBottomSheetActionRow(
+                                icon = Icons.Default.Delete,
+                                title = stringResource(Res.string.downloads_delete_series_all),
+                                onClick = {
+                                    onDeleteSeriesDownloads()
+                                    dismiss()
                                 },
                             )
                         }

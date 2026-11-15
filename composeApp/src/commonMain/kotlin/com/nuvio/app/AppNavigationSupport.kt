@@ -4,6 +4,7 @@ import androidx.navigation3.runtime.NavKey
 import androidx.savedstate.serialization.SavedStateConfiguration
 import com.nuvio.app.features.catalog.CatalogRepository
 import com.nuvio.app.features.collection.CollectionEditorPage
+import com.nuvio.app.features.downloads.BulkDownloadSessions
 import com.nuvio.app.features.collection.CollectionEditorRepository
 import com.nuvio.app.features.collection.FolderDetailRepository
 import com.nuvio.app.features.collection.disposeCollectionEditorPage
@@ -36,6 +37,7 @@ internal val navigationSavedStateConfiguration = SavedStateConfiguration {
             subclass(DownloadsRoute::class, DownloadsRoute.serializer())
             subclass(PartyRoute::class, PartyRoute.serializer())
             subclass(DownloadShowRoute::class, DownloadShowRoute.serializer())
+            subclass(BulkDownloadRoute::class, BulkDownloadRoute.serializer())
             subclass(AddonsSettingsRoute::class, AddonsSettingsRoute.serializer())
             subclass(PluginsSettingsRoute::class, PluginsSettingsRoute.serializer())
             subclass(AccountSettingsRoute::class, AccountSettingsRoute.serializer())
@@ -69,6 +71,7 @@ internal fun disposeRouteResources(route: AppRoute) {
             CatalogLaunchStore.remove(route.launchId)
         }
 
+        is BulkDownloadRoute -> BulkDownloadSessions.remove(route.launchId)
         is CollectionEditorRoute -> CollectionEditorRepository.clear()
         is CollectionEditorPageRoute -> {
             runCatching { CollectionEditorPage.valueOf(route.pageName) }

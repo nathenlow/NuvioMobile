@@ -516,6 +516,142 @@ object StreamsRepository {
         }
     }
 
+    /**
+     * Runs one complete stream search and returns the result, without touching the shared [uiState]
+     * that the stream screen uses. Several of these can run side by side, which is what the bulk
+     * download page needs. Searches go through [StreamSearchSessions], so a search already held for
+     * the same episode is reused unless [forceRefresh] is set.
+     */
+    internal suspend fun fetchStreamGroups(
+        type: String,
+        videoId: String,
+        season: Int?,
+        episode: Int?,
+        forceRefresh: Boolean,
+    ): List<AddonStreamGroup> {
+        PluginRepository.setLocalPluginSearchPaused(false)
+        val pluginUiState = if (AppFeaturePolicy.pluginsEnabled) {
+            PluginRepository.initialize()
+            PluginRepository.uiState.value
+        } else {
+            PluginsUiState(pluginsEnabled = false)
+        }
+        PlayerSettingsRepository.ensureLoaded()
+        val playerSettings = PlayerSettingsRepository.uiState.value
+        val debridSettings = DebridSettingsRepository.snapshot()
+        val streamBadgeRules = StreamBadgeSettingsRepository.snapshot()
+
+        fun presentStreamGroup(group: AddonStreamGroup): AddonStreamGroup {
+            val badgeGroup = StreamBadgePresentation.apply(
+                groups = listOf(group),
+                rules = streamBadgeRules,
+            ).firstOrNull() ?: group
+            return DebridStreamPresentation.apply(
+                groups = listOf(badgeGroup),
+                settings = debridSettings,
+            ).firstOrNull() ?: badgeGroup
+        }
+
+        val embeddedStreams = MetaDetailsRepository.findEmbeddedStreams(videoId)
+        if (embeddedStreams.isNotEmpty()) {
+            val group = AddonStreamGroup(
+                addonName = embeddedStreams.first().addonName,
+                addonId = "embedded",
+                streams = embeddedStreams,
+                isLoading = false,
+            )
+            return listOf(presentStreamGroup(group))
+        }
+
+        val isNativeServerRequest = ServerStreams.isNativeRequest(videoId)
+        val serverSources = ServerStreams.sources(type, videoId, season, episode, forceRefresh)
+        val preferredGroupIds = serverSources.filter { it.preferred }.mapTo(mutableSetOf()) { it.addonId }
+        val installedAddons = if (isNativeServerRequest) emptyList() else AddonRepository.uiState.value.addons.enabledAddons()
+        val pluginScrapers = if (AppFeaturePolicy.pluginsEnabled && !isNativeServerRequest) {
+            PluginRepository.getEnabledScrapersForType(type)
+        } else {
+            emptyList()
+        }
+        val pluginProviderGroups = pluginScrapers.toPluginProviderGroups(
+            repositories = pluginUiState.repositories,
+            groupByRepository = pluginUiState.groupStreamsByRepository,
+        )
+        val streamAddons = installedAddons.mapNotNull { addon ->
+            val manifest = addon.manifest ?: return@mapNotNull null
+            if (!manifest.supportsStream(type, videoId)) return@mapNotNull null
+            InstalledStreamAddonTarget(
+                addonName = addon.displayTitle.ifBlank { manifest.name },
+                addonId = addon.streamAddonInstanceId(manifest.id),
+                manifest = manifest,
+            )
+        }
+        if (streamAddons.isEmpty() && pluginProviderGroups.isEmpty() && serverSources.isEmpty()) {
+            return emptyList()
+        }
+
+        val installedAddonOrder = streamAddons.map { it.addonName }
+        val installedAddonIds = streamAddons.map { it.addonId }.toSet()
+        val installedAddonNames = installedAddonOrder.toSet()
+        val groupsById = LinkedHashMap<String, AddonStreamGroup>()
+
+        StreamSearchSessions.search(
+            profileId = ProfileRepository.activeProfileId,
+            targets = StreamSearchTargets(
+                type = type,
+                videoId = videoId,
+                season = season,
+                episode = episode,
+                streamAddons = streamAddons,
+                serverSources = serverSources,
+                pluginProviderGroups = pluginProviderGroups,
+            ),
+            forceRefresh = forceRefresh,
+        ).collect { completion ->
+            when (completion) {
+                is StreamLoadCompletion.Addon -> {
+                    val presented = presentStreamGroup(completion.group)
+                    groupsById[presented.addonId] = presented
+                }
+
+                is StreamLoadCompletion.PluginScraper -> {
+                    val providerGroup = pluginProviderGroups.firstOrNull { it.addonId == completion.addonId }
+                        ?: return@collect
+                    val existing = groupsById[completion.addonId]
+                        ?: AddonStreamGroup(
+                            addonName = providerGroup.addonName,
+                            addonId = providerGroup.addonId,
+                            streams = emptyList(),
+                        )
+                    groupsById[completion.addonId] = existing.copy(
+                        streams = (existing.streams + completion.streams).sortedForGroupedDisplay(),
+                        error = existing.error ?: completion.error,
+                    )
+                }
+            }
+        }
+
+        var ordered = StreamAutoPlaySelector.orderAddonStreams(
+            groups = groupsById.values.toList(),
+            installedOrder = installedAddonOrder,
+            preferredGroupIds = preferredGroupIds,
+        )
+        DirectDebridStreamPreparer.prepare(
+            streams = ordered.filter { it.addonId in installedAddonIds }.flatMap { it.streams },
+            season = season,
+            episode = episode,
+            playerSettings = playerSettings,
+            installedAddonNames = installedAddonNames,
+        ) { original, prepared ->
+            ordered = DirectDebridStreamPreparer.replacePreparedStream(
+                groups = ordered,
+                original = original,
+                prepared = prepared,
+                eligibleGroupIds = installedAddonIds,
+            )
+        }
+        return ordered
+    }
+
     fun selectFilter(addonId: String?) {
         _uiState.update { it.copy(selectedFilter = addonId) }
     }

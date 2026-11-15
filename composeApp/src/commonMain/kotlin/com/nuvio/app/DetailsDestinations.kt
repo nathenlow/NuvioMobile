@@ -9,6 +9,8 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.Modifier
 import com.nuvio.app.features.details.MetaDetailsScreen
 import com.nuvio.app.features.details.PersonDetailScreen
+import com.nuvio.app.features.downloads.BulkDownloadSessions
+import com.nuvio.app.navigation.BulkDownloadRoute
 import com.nuvio.app.features.details.TmdbEntityBrowseScreen
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.tmdb.TmdbEntityKind
@@ -85,6 +87,10 @@ internal fun DetailsDestination(
         onPlay = onPlay,
         onPlayManually = onPlayManually,
         onOpenMeta = onOpenMeta,
+        onOpenBulkDownload = { request ->
+            val launchId = BulkDownloadSessions.put(request)
+            navController.navigate(BulkDownloadRoute(launchId = launchId, title = request.title))
+        },
         onCastClick = { person, avatarTransitionKey ->
             val tmdbId = person.tmdbId
             if (tmdbId != null && tmdbId > 0) {

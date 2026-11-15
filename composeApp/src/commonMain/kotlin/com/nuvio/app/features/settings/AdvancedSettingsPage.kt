@@ -2,6 +2,24 @@ package com.nuvio.app.features.settings
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.width
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Add
+import androidx.compose.material.icons.rounded.Remove
+import androidx.compose.material3.FilledTonalIconButton
+import androidx.compose.material3.Icon
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.unit.dp
+import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.MAX_CONCURRENT_DOWNLOADS
+import com.nuvio.app.features.downloads.MIN_CONCURRENT_DOWNLOADS
+import org.jetbrains.compose.resources.getString
 import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -26,6 +44,17 @@ import com.nuvio.app.features.watchprogress.ContinueWatchingEnrichmentCache
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.downloads_concurrent_description
+import nuvio.composeapp.generated.resources.downloads_concurrent_title
+import nuvio.composeapp.generated.resources.downloads_full_episode_list_description
+import nuvio.composeapp.generated.resources.downloads_full_episode_list_title
+import nuvio.composeapp.generated.resources.downloads_verify_action
+import nuvio.composeapp.generated.resources.downloads_verify_clean
+import nuvio.composeapp.generated.resources.downloads_verify_description
+import nuvio.composeapp.generated.resources.downloads_verify_result
+import nuvio.composeapp.generated.resources.downloads_verify_running
+import nuvio.composeapp.generated.resources.downloads_verify_unmatched
+import nuvio.composeapp.generated.resources.settings_advanced_section_downloads
 import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.settings_advanced_clear_cw_cache
 import nuvio.composeapp.generated.resources.settings_advanced_clear_cw_cache_done
@@ -71,6 +100,9 @@ internal fun LazyListScope.advancedSettingsContent(
                 )
             }
         }
+    }
+    item {
+        DownloadSettingsSection(isTablet = isTablet)
     }
     if (SentrySettingsRepository.isSupported) {
         item {
@@ -138,6 +170,118 @@ internal fun LazyListScope.advancedSettingsContent(
                     },
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun DownloadSettingsSection(isTablet: Boolean) {
+    val tokens = MaterialTheme.nuvio
+    val limit by remember {
+        DownloadsRepository.ensureLoaded()
+        DownloadsRepository.maxConcurrentDownloads
+    }.collectAsStateWithLifecycle()
+    val saveFullEpisodeList by DownloadsRepository.saveFullEpisodeList.collectAsStateWithLifecycle()
+    val scope = rememberCoroutineScope()
+    var verifying by remember { mutableStateOf(false) }
+
+    SettingsSection(
+        title = stringResource(Res.string.settings_advanced_section_downloads),
+        isTablet = isTablet,
+    ) {
+        SettingsGroup(isTablet = isTablet) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(
+                        horizontal = if (isTablet) 20.dp else 16.dp,
+                        vertical = if (isTablet) 16.dp else 14.dp,
+                    ),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Column(
+                    modifier = Modifier
+                        .weight(1f)
+                        .padding(end = 12.dp),
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = stringResource(Res.string.downloads_concurrent_title),
+                        style = MaterialTheme.typography.bodyLarge,
+                        color = tokens.colors.textPrimary,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Text(
+                        text = stringResource(Res.string.downloads_concurrent_description),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = tokens.colors.textMuted,
+                    )
+                }
+                FilledTonalIconButton(
+                    enabled = limit > MIN_CONCURRENT_DOWNLOADS,
+                    onClick = { DownloadsRepository.setMaxConcurrentDownloads(limit - 1) },
+                ) {
+                    Icon(Icons.Rounded.Remove, contentDescription = null)
+                }
+                Text(
+                    text = limit.toString(),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.Bold,
+                    textAlign = TextAlign.Center,
+                    color = tokens.colors.textPrimary,
+                    modifier = Modifier.width(40.dp),
+                )
+                FilledTonalIconButton(
+                    enabled = limit < MAX_CONCURRENT_DOWNLOADS,
+                    onClick = { DownloadsRepository.setMaxConcurrentDownloads(limit + 1) },
+                ) {
+                    Icon(Icons.Rounded.Add, contentDescription = null)
+                }
+            }
+            SettingsGroupDivider(isTablet = isTablet)
+            SettingsSwitchRow(
+                title = stringResource(Res.string.downloads_full_episode_list_title),
+                description = stringResource(Res.string.downloads_full_episode_list_description),
+                checked = saveFullEpisodeList,
+                isTablet = isTablet,
+                onCheckedChange = DownloadsRepository::setSaveFullEpisodeList,
+            )
+            SettingsGroupDivider(isTablet = isTablet)
+            SettingsNavigationRow(
+                title = stringResource(
+                    if (verifying) Res.string.downloads_verify_running else Res.string.downloads_verify_action,
+                ),
+                description = stringResource(Res.string.downloads_verify_description),
+                enabled = !verifying,
+                isTablet = isTablet,
+                onClick = {
+                    scope.launch {
+                        verifying = true
+                        val result = try {
+                            DownloadsRepository.verifyAgainstDisk()
+                        } finally {
+                            verifying = false
+                        }
+                        val summary = if (result.changedAnything) {
+                            getString(
+                                Res.string.downloads_verify_result,
+                                result.removedRecords,
+                                result.restoredRecords,
+                                result.cleanedLeftovers,
+                            )
+                        } else {
+                            getString(Res.string.downloads_verify_clean)
+                        }
+                        NuvioToastController.show(
+                            if (result.unmatchedFiles > 0) {
+                                summary + "\n" + getString(Res.string.downloads_verify_unmatched, result.unmatchedFiles)
+                            } else {
+                                summary
+                            },
+                        )
+                    }
+                },
+            )
         }
     }
 }

@@ -32,6 +32,7 @@ import androidx.compose.foundation.lazy.LazyListScope
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.rounded.Star
 import androidx.compose.material.icons.rounded.StarOutline
 import androidx.compose.material.icons.filled.Add
@@ -101,7 +102,17 @@ import com.nuvio.app.core.ui.rememberArtworkBackdrop
 import com.nuvio.app.core.ui.rememberHeroStretchState
 import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
+import com.nuvio.app.features.details.components.BulkDownloadOption
+import com.nuvio.app.features.details.components.BulkDownloadOptionsSheet
 import com.nuvio.app.features.details.components.DetailActions
+import com.nuvio.app.features.details.components.LocalDetailBulkDownloadAction
+import com.nuvio.app.features.downloads.BulkDownloadRequest
+import com.nuvio.app.features.downloads.DownloadItem
+import com.nuvio.app.features.downloads.DownloadStatus
+import com.nuvio.app.features.details.components.LocalDownloadedEpisodeKeys
+import com.nuvio.app.core.ui.NuvioStatusModal
+import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.BulkEpisodeRef
 import com.nuvio.app.features.details.components.CommentDetailSheet
 import com.nuvio.app.features.details.components.DetailAdditionalInfoSection
 import com.nuvio.app.features.details.components.DetailCastSection
@@ -192,6 +203,7 @@ fun MetaDetailsScreen(
     onOpenMeta: ((MetaPreview) -> Unit)? = null,
     onCastClick: ((MetaPerson, String?) -> Unit)? = null,
     onCompanyClick: ((MetaCompany, String) -> Unit)? = null,
+    onOpenBulkDownload: ((BulkDownloadRequest) -> Unit)? = null,
     sharedTransitionScope: SharedTransitionScope? = null,
     animatedVisibilityScope: AnimatedVisibilityScope? = null,
     modifier: Modifier = Modifier,
@@ -253,6 +265,10 @@ fun MetaDetailsScreen(
         PlayerSettingsRepository.uiState
     }.collectAsStateWithLifecycle()
     val networkStatusUiState by NetworkStatusRepository.uiState.collectAsStateWithLifecycle()
+    // Keep the details saved with downloads of this title current whenever the page loads online.
+    LaunchedEffect(displayedMeta) {
+        displayedMeta?.let(DownloadsRepository::refreshSavedMetadata)
+    }
     var autoLoadAttempted by remember(type, id) { mutableStateOf(false) }
     var observedOfflineState by remember(type, id) { mutableStateOf(false) }
     var selectedEpisodeForActions by remember(type, id) { mutableStateOf<MetaVideo?>(null) }
@@ -260,6 +276,32 @@ fun MetaDetailsScreen(
     var episodeToRate by remember(type, id) { mutableStateOf<MetaVideo?>(null) }
     val episodeOverlayHazeState = rememberHazeState()
     var selectedSeasonForActions by remember(type, id) { mutableStateOf<Int?>(null) }
+    var showBulkDownloadSheet by remember(type, id) { mutableStateOf(false) }
+    val downloadsState by remember {
+        DownloadsRepository.ensureLoaded()
+        DownloadsRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val downloadTitleId = displayedMeta?.id ?: id
+    val completedTitleDownloads = remember(downloadsState.items, downloadTitleId) {
+        downloadsState.items.filter {
+            it.parentMetaId == downloadTitleId && it.status == DownloadStatus.Completed
+        }
+    }
+    val downloadedEpisodeKeys = remember(completedTitleDownloads) {
+        completedTitleDownloads.mapNotNull { item ->
+            val season = item.seasonNumber
+            val episode = item.episodeNumber
+            if (season != null && episode != null) season to episode else null
+        }.toSet()
+    }
+    fun downloadFor(episode: MetaVideo): DownloadItem? = completedTitleDownloads.firstOrNull {
+        it.seasonNumber == episode.season && it.episodeNumber == episode.episode
+    }
+    // What a delete confirmation will remove: one episode's download, or all of the series'.
+    var pendingDownloadDelete by remember(type, id) { mutableStateOf<DownloadItem?>(null) }
+    var pendingSeriesDownloadDelete by remember(type, id) { mutableStateOf(false) }
+    val bulkDownloadAvailable = onOpenBulkDownload != null &&
+        displayedMeta?.videos?.any { it.season != null && it.episode != null } == true
     val commentsEnabled by remember {
         TraktCommentsSettings.ensureLoaded()
         TraktCommentsSettings.enabled
@@ -453,6 +495,14 @@ fun MetaDetailsScreen(
         }
     }
 
+    CompositionLocalProvider(
+        LocalDownloadedEpisodeKeys provides downloadedEpisodeKeys,
+        LocalDetailBulkDownloadAction provides if (bulkDownloadAvailable) {
+            { showBulkDownloadSheet = true }
+        } else {
+            null
+        },
+    ) {
     Box(
         modifier = modifier
             .fillMaxSize()
@@ -1450,6 +1500,10 @@ fun MetaDetailsScreen(
                                     onEpisodeManualPlayClick(selectedEpisode)
                                 },
                                 ratingMedia = remember(meta, selectedEpisode) { meta.ratingReference(selectedEpisode) },
+                                isDownloaded = downloadFor(selectedEpisode) != null,
+                                onDeleteDownload = { pendingDownloadDelete = downloadFor(selectedEpisode) },
+                                hasSeriesDownloads = completedTitleDownloads.isNotEmpty(),
+                                onDeleteSeriesDownloads = { pendingSeriesDownloadDelete = true },
                             )
                         }
 
@@ -1504,6 +1558,79 @@ fun MetaDetailsScreen(
                                         meta = meta,
                                         episodes = previousSeasonEpisodes,
                                         areCurrentlyWatched = false,
+                                    )
+                                },
+                            )
+                        }
+
+                        if (showBulkDownloadSheet && onOpenBulkDownload != null) {
+                            val allEpisodesLabel = stringResource(Res.string.bulk_download_option_all)
+                            val unwatchedEpisodesLabel = stringResource(Res.string.bulk_download_option_unwatched)
+                            val releasedEpisodes = remember(meta, todayIsoDate) {
+                                meta.releasedPlayableEpisodes(todayIsoDate)
+                                    .filter { it.season != null && it.episode != null }
+                            }
+                            // Specials stay out of "all" and "unwatched"; they can still be picked as their own season.
+                            val mainEpisodes = remember(releasedEpisodes) {
+                                releasedEpisodes.filter { (it.season ?: 0) > 0 }.ifEmpty { releasedEpisodes }
+                            }
+                            val unwatchedEpisodes = remember(mainEpisodes, watchedUiState.watchedKeys, progressByVideoId) {
+                                mainEpisodes.filterNot { episode ->
+                                    isEpisodeWatchedForActions(
+                                        meta = meta,
+                                        episode = episode,
+                                        watchedKeys = watchedUiState.watchedKeys,
+                                        progressByVideoId = progressByVideoId,
+                                    )
+                                }
+                            }
+                            val seasonNumbers = remember(releasedEpisodes) {
+                                releasedEpisodes.mapNotNull { it.season }.distinct()
+                                    .sortedBy { if (it == 0) Int.MAX_VALUE else it }
+                            }
+                            val seasonOptions = seasonNumbers.map { seasonNumber ->
+                                BulkDownloadOption(
+                                    label = selectedSeasonLabel(seasonNumber),
+                                    episodes = releasedEpisodes.filter { it.season == seasonNumber },
+                                )
+                            }
+                            val bulkOptions = buildList {
+                                add(BulkDownloadOption(allEpisodesLabel, mainEpisodes))
+                                add(BulkDownloadOption(unwatchedEpisodesLabel, unwatchedEpisodes))
+                                addAll(seasonOptions)
+                            }.filter { it.episodes.isNotEmpty() }
+                            BulkDownloadOptionsSheet(
+                                options = bulkOptions,
+                                onDismiss = { showBulkDownloadSheet = false },
+                                downloadedCount = completedTitleDownloads.size,
+                                onDeleteAllDownloaded = { pendingSeriesDownloadDelete = true },
+                                onSelect = { option ->
+                                    onOpenBulkDownload(
+                                        BulkDownloadRequest(
+                                            metaType = meta.type,
+                                            metaId = meta.id,
+                                            title = meta.name,
+                                            logo = meta.logo,
+                                            poster = meta.poster,
+                                            background = meta.background,
+                                            scopeLabel = option.label,
+                                            episodes = option.episodes.map { video ->
+                                                BulkEpisodeRef(
+                                                    videoId = video.id.takeIf { it.isNotBlank() }
+                                                        ?: buildPlaybackVideoId(
+                                                            parentMetaId = meta.id,
+                                                            seasonNumber = video.season,
+                                                            episodeNumber = video.episode,
+                                                            fallbackVideoId = video.id,
+                                                        ),
+                                                    seasonNumber = video.season ?: 0,
+                                                    episodeNumber = video.episode ?: 0,
+                                                    title = video.title,
+                                                    thumbnail = video.thumbnail,
+                                                    pauseDescription = video.overview,
+                                                )
+                                            },
+                                        ),
                                     )
                                 },
                             )
@@ -1778,6 +1905,24 @@ fun MetaDetailsScreen(
                             ),
                         )
                     }
+                    if (downloadFor(selectedEpisode) != null) {
+                        add(
+                            PosterZoomOverlayAction(
+                                icon = Icons.Default.Delete,
+                                label = stringResource(Res.string.downloads_delete_episode),
+                                onSelected = { pendingDownloadDelete = downloadFor(selectedEpisode) },
+                            ),
+                        )
+                    }
+                    if (completedTitleDownloads.isNotEmpty()) {
+                        add(
+                            PosterZoomOverlayAction(
+                                icon = Icons.Default.Delete,
+                                label = stringResource(Res.string.downloads_delete_series_all),
+                                onSelected = { pendingSeriesDownloadDelete = true },
+                            ),
+                        )
+                    }
                     if (
                         onPlayManually != null &&
                         StreamAutoPlayPolicy.isEffectivelyEnabled(playerSettingsUiState) &&
@@ -1826,6 +1971,37 @@ fun MetaDetailsScreen(
             )
         }
 
+        pendingDownloadDelete?.let { target ->
+            NuvioStatusModal(
+                title = stringResource(Res.string.action_delete_confirm_title),
+                message = stringResource(Res.string.action_delete_confirm_message),
+                isVisible = true,
+                destructive = true,
+                confirmText = stringResource(Res.string.action_yes),
+                dismissText = stringResource(Res.string.action_no),
+                onConfirm = {
+                    DownloadsRepository.cancelDownload(target.id)
+                    pendingDownloadDelete = null
+                },
+                onDismiss = { pendingDownloadDelete = null },
+            )
+        }
+        if (pendingSeriesDownloadDelete) {
+            NuvioStatusModal(
+                title = stringResource(Res.string.downloads_library_delete_title),
+                message = stringResource(Res.string.downloads_library_delete_message),
+                isVisible = true,
+                destructive = true,
+                confirmText = stringResource(Res.string.action_yes),
+                dismissText = stringResource(Res.string.action_no),
+                onConfirm = {
+                    DownloadsRepository.deleteTitleDownloads(downloadTitleId)
+                    pendingSeriesDownloadDelete = false
+                },
+                onDismiss = { pendingSeriesDownloadDelete = false },
+            )
+        }
+
         val ratedEpisode = episodeToRate
         if (meta != null && ratedEpisode != null) {
             val ratingMedia = remember(meta, ratedEpisode) { meta.ratingReference(ratedEpisode) }
@@ -1838,6 +2014,7 @@ fun MetaDetailsScreen(
                 onDismiss = { episodeToRate = null },
             )
         }
+    }
     }
 }
 

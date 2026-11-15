@@ -22,6 +22,7 @@ import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material.icons.filled.CheckCircleOutline
+import androidx.compose.material.icons.filled.Download
 import androidx.compose.material.icons.filled.MoreHoriz
 import androidx.compose.material.icons.filled.Shuffle
 import androidx.compose.material3.Icon
@@ -32,6 +33,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -48,6 +50,7 @@ import com.nuvio.app.core.ui.appIconPainter
 import com.nuvio.app.core.ui.backdropControlColor
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.action_play
+import nuvio.composeapp.generated.resources.bulk_download_action
 import nuvio.composeapp.generated.resources.details_actions_menu_label
 import nuvio.composeapp.generated.resources.hero_add_to_library
 import nuvio.composeapp.generated.resources.hero_mark_unwatched
@@ -57,6 +60,9 @@ import nuvio.composeapp.generated.resources.playback_unavailable
 import nuvio.composeapp.generated.resources.random_episode_title
 import nuvio.composeapp.generated.resources.shuffle_stop
 import org.jetbrains.compose.resources.stringResource
+
+/** Set by the details screen for shows with episodes; adds a "download episodes" action to [DetailActions]. */
+val LocalDetailBulkDownloadAction = staticCompositionLocalOf<(() -> Unit)?> { null }
 
 data class DetailSecondaryAction(
     val label: String,
@@ -266,12 +272,22 @@ fun DetailActions(
             onClick = onClick,
         )
     }
+    val bulkDownload = LocalDetailBulkDownloadAction.current
     DetailActionButtons(
         playLabel = if (playEnabled) playLabel else stringResource(Res.string.playback_unavailable),
         playEnabled = playEnabled,
         pinnedAction = shuffleAction?.takeIf { shuffleEnabled },
         secondaryActions = buildList {
             if (!shuffleEnabled) shuffleAction?.let(::add)
+            bulkDownload?.let { onClick ->
+                add(
+                    DetailSecondaryAction(
+                        label = stringResource(Res.string.bulk_download_action),
+                        icon = Icons.Default.Download,
+                        onClick = onClick,
+                    ),
+                )
+            }
             add(
                 DetailSecondaryAction(
                     label = stringResource(if (isWatched) Res.string.hero_mark_unwatched else Res.string.hero_mark_watched),

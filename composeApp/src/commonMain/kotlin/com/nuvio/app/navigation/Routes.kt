@@ -98,6 +98,12 @@ data class DownloadShowRoute(
 ) : AppRoute
 
 @Serializable
+data class BulkDownloadRoute(
+    val launchId: Long,
+    override val title: String = "",
+) : AppRoute
+
+@Serializable
 data class AddonsSettingsRoute(override val title: String = "") : SettingsDestinationRoute
 
 @Serializable

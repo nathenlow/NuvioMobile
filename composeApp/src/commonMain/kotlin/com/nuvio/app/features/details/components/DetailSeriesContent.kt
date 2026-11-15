@@ -89,11 +89,43 @@ import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 import org.jetbrains.compose.resources.painterResource
 import org.jetbrains.compose.resources.stringResource
+import androidx.compose.material.icons.rounded.DownloadDone
 import kotlin.math.absoluteValue
 import kotlin.math.roundToInt
 import com.nuvio.app.core.i18n.localizedEpisodeTitle
 
 private val log = Logger.withTag("SeriesContent")
+
+/** (season, episode) of the shown title's episodes that are downloaded to this device. */
+val LocalDownloadedEpisodeKeys = androidx.compose.runtime.staticCompositionLocalOf<Set<Pair<Int, Int>>> { emptySet() }
+
+@Composable
+private fun isEpisodeDownloaded(video: MetaVideo): Boolean {
+    val season = video.season ?: return false
+    val episode = video.episode ?: return false
+    return (season to episode) in LocalDownloadedEpisodeKeys.current
+}
+
+/** A small mark for an episode that is downloaded, shown like the watched tick. */
+@Composable
+private fun EpisodeDownloadedBadge(modifier: Modifier = Modifier) {
+    androidx.compose.material3.Surface(
+        modifier = modifier,
+        shape = androidx.compose.foundation.shape.CircleShape,
+        color = Color.Black.copy(alpha = 0.6f),
+    ) {
+        androidx.compose.material3.Icon(
+            imageVector = androidx.compose.material.icons.Icons.Rounded.DownloadDone,
+            contentDescription = org.jetbrains.compose.resources.stringResource(
+                nuvio.composeapp.generated.resources.Res.string.downloads_badge_description,
+            ),
+            tint = Color.White,
+            modifier = Modifier
+                .padding(4.dp)
+                .size(14.dp),
+        )
+    }
+}
 
 @Composable
 fun DetailSeriesContent(
@@ -867,6 +899,14 @@ private fun EpisodeHorizontalCard(
                 .padding(metrics.contentPadding),
         )
 
+        if (isEpisodeDownloaded(video)) {
+            EpisodeDownloadedBadge(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(metrics.contentPadding),
+            )
+        }
+
         Column(
             modifier = Modifier
                 .align(Alignment.BottomStart)
@@ -1256,6 +1296,21 @@ private fun EpisodeListCard(
                         .align(Alignment.TopEnd)
                         .padding(8.dp),
                 )
+
+                if (isEpisodeDownloaded(video)) {
+                    EpisodeDownloadedBadge(
+                        modifier = Modifier
+                            .align(Alignment.BottomEnd)
+                            .padding(
+                                end = 8.dp,
+                                bottom = if (progressEntry != null && progressEntry.durationMs > 0L && !progressEntry.isCompleted) {
+                                    24.dp
+                                } else {
+                                    8.dp
+                                },
+                            ),
+                    )
+                }
 
                 EpisodeAvailabilityBadge(
                     video = video,

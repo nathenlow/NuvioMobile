@@ -427,6 +427,34 @@ internal fun settingsSearchEntries(
         section = stringResource(Res.string.settings_advanced_section_startup),
         category = advancedCategory,
     )
+    val downloadsSection = stringResource(Res.string.settings_advanced_section_downloads)
+    addRow(
+        page = SettingsPage.Advanced,
+        key = "concurrent-downloads",
+        title = stringResource(Res.string.downloads_concurrent_title),
+        description = stringResource(Res.string.downloads_concurrent_description),
+        pageLabel = advancedPage,
+        section = downloadsSection,
+        category = advancedCategory,
+    )
+    addRow(
+        page = SettingsPage.Advanced,
+        key = "full-episode-list",
+        title = stringResource(Res.string.downloads_full_episode_list_title),
+        description = stringResource(Res.string.downloads_full_episode_list_description),
+        pageLabel = advancedPage,
+        section = downloadsSection,
+        category = advancedCategory,
+    )
+    addRow(
+        page = SettingsPage.Advanced,
+        key = "verify-downloads",
+        title = stringResource(Res.string.downloads_verify_action),
+        description = stringResource(Res.string.downloads_verify_description),
+        pageLabel = advancedPage,
+        section = downloadsSection,
+        category = advancedCategory,
+    )
     if (SentrySettingsRepository.isSupported) {
         addRow(
             page = SettingsPage.Advanced,

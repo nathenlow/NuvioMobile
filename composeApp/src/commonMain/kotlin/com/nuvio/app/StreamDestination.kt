@@ -90,6 +90,8 @@ internal fun StreamDestination(
     val pauseDescription = launch.pauseDescription
     val streamRouteScope = rememberCoroutineScope()
     var autoPlayNavigationStarted by remember(route.launchId) { mutableStateOf(false) }
+    // True when the stream was chosen elsewhere (the bulk download page): leaving the player returns there, not to the picker.
+    var opensFromPreselected by remember(route.launchId) { mutableStateOf(false) }
     var resolvingDebridStream by rememberSaveable(route.launchId) { mutableStateOf(false) }
     var resolvingYouTubeStream by rememberSaveable(route.launchId) { mutableStateOf(false) }
     var preparingServerStream by remember(route.launchId) { mutableStateOf(false) }
@@ -290,7 +292,7 @@ internal fun StreamDestination(
             stream = stream,
             resolvedResumePositionMs = resolvedResumePositionMs,
             resolvedResumeProgressFraction = resolvedResumeProgressFraction,
-            replaceStreamRoute = isAutoPlay,
+            replaceStreamRoute = isAutoPlay || opensFromPreselected,
         )
     }
 
@@ -770,6 +772,7 @@ internal fun StreamDestination(
             streamRouteScope.launch {
                 openExternalPlayback(playerLaunch)
                 StreamsRepository.cancelLoading()
+                if (opensFromPreselected) onBack()
             }
             return
         }
@@ -778,6 +781,24 @@ internal fun StreamDestination(
         StreamsRepository.cancelLoading()
         navController.navigate(
             PlayerRoute(launchId = launchId, title = playerLaunch.title)
+        ) {
+            if (opensFromPreselected) {
+                popUpTo<StreamRoute> { inclusive = true }
+            }
+        }
+    }
+
+    LaunchedEffect(route.launchId, hasResolvedVideoId) {
+        if (!hasResolvedVideoId) return@LaunchedEffect
+        val preselected = StreamLaunchStore.consumePreselectedStream(route.launchId)
+            ?: return@LaunchedEffect
+        opensFromPreselected = true
+        openSelectedStream(
+            stream = preselected,
+            resolvedResumePositionMs = launch.resumePositionMs,
+            resolvedResumeProgressFraction = launch.resumeProgressFraction,
+            forceExternal = false,
+            forceInternal = false,
         )
     }
 

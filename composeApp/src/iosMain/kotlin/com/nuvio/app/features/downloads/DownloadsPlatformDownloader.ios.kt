@@ -84,6 +84,7 @@ internal actual object DownloadsPlatformDownloader {
 
             try {
                 DownloadSubtitles.prepare(request.item, NSURL.fileURLWithPath(destinationPath).absoluteString!!)
+                DownloadArtwork.prepare(request.item, NSURL.fileURLWithPath(destinationPath).absoluteString!!)
                 var resumeFromBytes = fileSizeOrNull(tempPath)?.coerceAtLeast(0L) ?: 0L
 
                 var attemptedRangeRequest = resumeFromBytes > 0L
@@ -164,9 +165,16 @@ internal actual object DownloadsPlatformDownloader {
         return removePathIfExists("${downloadsDirectoryPath()}/$fileName")
     }
 
+    @OptIn(ExperimentalForeignApi::class)
+    actual fun listDownloadEntries(): List<String> =
+        NSFileManager.defaultManager.contentsOfDirectoryAtPath(downloadsDirectoryPath(), null)
+            ?.filterIsInstance<String>()
+            .orEmpty()
+
     actual fun removePartialFile(destinationFileName: String): Boolean {
         val destinationPath = "${downloadsDirectoryPath()}/$destinationFileName"
         DownloadSubtitleStorage(NSURL.fileURLWithPath(destinationPath).absoluteString!!).remove()
+        DownloadArtworkStorage(NSURL.fileURLWithPath(destinationPath).absoluteString!!).remove()
         return removePathIfExists("$destinationPath.part")
     }
 

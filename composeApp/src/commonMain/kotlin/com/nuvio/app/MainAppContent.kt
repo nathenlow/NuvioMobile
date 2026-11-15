@@ -105,6 +105,7 @@ import com.nuvio.app.features.collection.CollectionSyncService
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
 import com.nuvio.app.features.downloads.DownloadItem
+import com.nuvio.app.features.library.DownloadLibraryRequest
 import com.nuvio.app.features.downloads.DownloadSubtitles
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.home.HomeCatalogSection
@@ -644,10 +645,9 @@ internal fun MainAppContent(
                     DownloadsRepository.playableLocalFileUri(it) != null
                 }
                 if (hasPlayableDownload) {
+                    // Offline with downloads on the device: open the download library to watch them.
+                    DownloadLibraryRequest.request()
                     activateTab(AppScreenTab.Library)
-                    navController.navigate(DownloadsRoute(downloadsTitle)) {
-                        launchSingleTop = true
-                    }
                 }
             }
         }
@@ -1450,6 +1450,15 @@ internal fun MainAppContent(
                                     }
                                 },
                                 onDownloadsClick = { navController.navigate(DownloadsRoute(downloadsTitle)) },
+                                onDownloadedTitleClick = { downloaded ->
+                                    navController.navigate(
+                                        DetailRoute(
+                                            type = downloaded.metaType,
+                                            id = downloaded.metaId,
+                                            title = downloaded.title,
+                                        ),
+                                    )
+                                },
                                 onContinueWatchingClick = onContinueWatchingClick,
                                 onContinueWatchingLongPress = onContinueWatchingLongPress,
                                 onSwitchProfile = onSwitchProfile,
@@ -1644,6 +1653,12 @@ internal fun MainAppContent(
                         navController = navController,
                         useNativeNavigation = useNativeNavigation,
                         onOpenDownload = ::openDownloadedItem,
+                    )
+                }
+                entry<BulkDownloadRoute> { route ->
+                    BulkDownloadDestination(
+                        route = route,
+                        navController = navController,
                     )
                 }
                 entry<DownloadShowRoute> { route ->
