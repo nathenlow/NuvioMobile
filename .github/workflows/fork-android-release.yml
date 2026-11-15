@@ -1,0 +1,191 @@
+name: Fork Android Release
+
+# Builds the signed Android APKs and publishes them as a GitHub release of THIS repository.
+# The in-app updater (features/updater/AppUpdaterRepository.kt, UPDATE_REPOSITORY) reads the
+# latest release of this repository, so the tag must be the app version with an optional leading v, for example v0.6.14.
+#
+# Run it from the Actions tab ("Run workflow"), or push a tag such as v0.6.14.
+#
+# Required repository secrets (Settings > Secrets and variables > Actions):
+#   FORK_RELEASE_KEYSTORE_BASE64   the release keystore, base64 encoded:  base64 -i release.jks | pbcopy
+#   FORK_RELEASE_STORE_PASSWORD    keystore password
+#   FORK_RELEASE_KEY_ALIAS         key alias
+#   FORK_RELEASE_KEY_PASSWORD      key password
+#   NUVIO_SUPABASE_URL             backend URL baked into the app, e.g. https://api.nuvio.tv
+#   NUVIO_SUPABASE_ANON_KEY        the backend's publishable key
+# Optional secret:
+#   FORK_EXTRA_PROPERTIES          more local.properties lines, one per line (TRAKT_CLIENT_ID=..., TMDB_API_KEY=...)
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: App version without a leading v (empty = MARKETING_VERSION from iosApp/Configuration/Version.xcconfig)
+        required: false
+        type: string
+      prerelease:
+        description: Mark the release as a pre-release (only the beta update channel sees those)
+        required: false
+        type: boolean
+        default: false
+      draft:
+        description: Create the release as a draft instead of publishing it
+        required: false
+        type: boolean
+        default: false
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+concurrency:
+  group: fork-android-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build and publish APKs
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    env:
+      GH_TOKEN: ${{ github.token }}
+      KEYSTORE_BASE64: ${{ secrets.FORK_RELEASE_KEYSTORE_BASE64 }}
+      STORE_PASSWORD: ${{ secrets.FORK_RELEASE_STORE_PASSWORD }}
+      KEY_ALIAS: ${{ secrets.FORK_RELEASE_KEY_ALIAS }}
+      KEY_PASSWORD: ${{ secrets.FORK_RELEASE_KEY_PASSWORD }}
+      SUPABASE_URL: ${{ secrets.NUVIO_SUPABASE_URL }}
+      SUPABASE_ANON_KEY: ${{ secrets.NUVIO_SUPABASE_ANON_KEY }}
+      EXTRA_PROPERTIES: ${{ secrets.FORK_EXTRA_PROPERTIES }}
+
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v6
+
+      - name: Work out the version
+        id: version
+        env:
+          INPUT_VERSION: ${{ inputs.version }}
+        run: |
+          xcconfig=iosApp/Configuration/Version.xcconfig
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then
+            version="${GITHUB_REF_NAME#v}"
+          elif [[ -n "${INPUT_VERSION}" ]]; then
+            version="${INPUT_VERSION#v}"
+          else
+            version="$(sed -nE 's/^[[:space:]]*MARKETING_VERSION[[:space:]]*=[[:space:]]*([^[:space:]#]+).*$/\1/p' "${xcconfig}" | head -n 1)"
+          fi
+          if [[ ! "${version}" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "'${version}' is not a version like 1.2.3 or 1.2.3-beta; the in-app updater could not read it." >&2
+            exit 1
+          fi
+
+          # Android only installs an update over an app with a lower version code, so raise it every run.
+          base_code="$(sed -nE 's/^[[:space:]]*CURRENT_PROJECT_VERSION[[:space:]]*=[[:space:]]*([0-9]+).*$/\1/p' "${xcconfig}" | head -n 1)"
+          version_code=$(( ${base_code:-1} + GITHUB_RUN_NUMBER ))
+          sed -i -E "s/^([[:space:]]*CURRENT_PROJECT_VERSION[[:space:]]*=[[:space:]]*)[0-9]+/\1${version_code}/" "${xcconfig}"
+
+          if [[ "${GITHUB_REF_TYPE}" == "tag" ]]; then tag="${GITHUB_REF_NAME}"; else tag="v${version}"; fi
+          echo "version=${version}" >> "${GITHUB_OUTPUT}"
+          echo "tag=${tag}" >> "${GITHUB_OUTPUT}"
+          echo "Building ${version} (version code ${version_code})"
+
+      - name: Check the release is new
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+        run: |
+          if gh api "repos/${GITHUB_REPOSITORY}/releases/tags/${RELEASE_TAG}" >/dev/null 2>&1; then
+            echo "A release for ${RELEASE_TAG} already exists. Pick a higher version." >&2
+            exit 1
+          fi
+
+      - name: Check the signing secrets
+        run: |
+          missing=()
+          for name in KEYSTORE_BASE64 STORE_PASSWORD KEY_ALIAS KEY_PASSWORD SUPABASE_URL SUPABASE_ANON_KEY; do
+            if [[ -z "${!name}" ]]; then missing+=("${name}"); fi
+          done
+          if (( ${#missing[@]} > 0 )); then
+            echo "Missing repository secrets for: ${missing[*]} (see the comment at the top of this workflow)." >&2
+            exit 1
+          fi
+
+      - name: Set up Java
+        uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v6
+
+      - name: Write local.properties
+        run: |
+          keystore_path="${RUNNER_TEMP}/release.jks"
+          printf '%s' "${KEYSTORE_BASE64}" | base64 --decode > "${keystore_path}"
+          {
+            echo "NUVIO_RELEASE_STORE_FILE=${keystore_path}"
+            echo "NUVIO_RELEASE_STORE_PASSWORD=${STORE_PASSWORD}"
+            echo "NUVIO_RELEASE_KEY_ALIAS=${KEY_ALIAS}"
+            echo "NUVIO_RELEASE_KEY_PASSWORD=${KEY_PASSWORD}"
+            echo "NUVIO_SUPABASE_URL=${SUPABASE_URL}"
+            echo "NUVIO_SUPABASE_ANON_KEY=${SUPABASE_ANON_KEY}"
+            if [[ -n "${EXTRA_PROPERTIES}" ]]; then
+              printf '%s\n' "${EXTRA_PROPERTIES}"
+            fi
+          } > local.properties
+
+      - name: Build release APKs
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: ./gradlew :androidApp:assembleFullRelease -Pnuvio.app.versionName="${RELEASE_VERSION}" --stacktrace
+
+      - name: Name the APKs
+        env:
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+        run: |
+          mkdir -p dist
+          shopt -s nullglob
+          apks=(androidApp/build/outputs/apk/full/release/*.apk)
+          if (( ${#apks[@]} == 0 )); then
+            echo "The build produced no APK." >&2
+            exit 1
+          fi
+          for apk in "${apks[@]}"; do
+            base="$(basename "${apk}" .apk)"
+            # The updater picks the APK for the phone's CPU by looking for its name in the file name.
+            cp "${apk}" "dist/nuvio-${RELEASE_VERSION}-${base}.apk"
+          done
+          ls -l dist
+
+      - name: Upload APKs as a workflow artifact
+        uses: actions/upload-artifact@v7
+        with:
+          name: nuvio-${{ steps.version.outputs.version }}-android
+          path: dist/*.apk
+          if-no-files-found: error
+
+      - name: Create the GitHub release
+        env:
+          RELEASE_TAG: ${{ steps.version.outputs.tag }}
+          RELEASE_VERSION: ${{ steps.version.outputs.version }}
+          IS_PRERELEASE: ${{ inputs.prerelease }}
+          IS_DRAFT: ${{ inputs.draft }}
+        run: |
+          args=(
+            "${RELEASE_TAG}"
+            --repo "${GITHUB_REPOSITORY}"
+            --title "${RELEASE_VERSION}"
+            --generate-notes
+          )
+          if [[ "${GITHUB_REF_TYPE}" != "tag" ]]; then
+            args+=(--target "${GITHUB_SHA}")
+          fi
+          if [[ "${IS_PRERELEASE}" == "true" || "${RELEASE_VERSION}" == *-* ]]; then
+            args+=(--prerelease)
+          fi
+          if [[ "${IS_DRAFT}" == "true" ]]; then
+            args+=(--draft)
+          fi
+          gh release create "${args[@]}" dist/*.apk

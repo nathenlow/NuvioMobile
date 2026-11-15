@@ -29,6 +29,12 @@ internal data class GitHubAssetDto(
     @SerialName("content_type") val contentType: String? = null,
 )
 
+/**
+ * The GitHub repository the app looks in for new releases, as "owner/name". This fork publishes its
+ * own releases, so it is not the upstream project.
+ */
+internal const val UPDATE_REPOSITORY = "nathenlow/NuvioMobile"
+
 internal class NoChannelReleaseException : IllegalStateException()
 
 internal object AppUpdaterRepository {
@@ -40,10 +46,10 @@ internal object AppUpdaterRepository {
     suspend fun getLatestChannelUpdate(channel: UpdateChannel): Result<AppUpdate> = runCatching {
         val response = httpRequestRaw(
             method = "GET",
-            url = "https://api.github.com/repos/NuvioMedia/NuvioMobile/${releasePath(channel)}",
+            url = "https://api.github.com/repos/$UPDATE_REPOSITORY/${releasePath(channel)}",
             headers = mapOf(
                 "Accept" to "application/vnd.github+json",
-                "User-Agent" to "NuvioMobile",
+                "User-Agent" to "NuvioMobile-Fork",
             ),
             body = "",
         )
