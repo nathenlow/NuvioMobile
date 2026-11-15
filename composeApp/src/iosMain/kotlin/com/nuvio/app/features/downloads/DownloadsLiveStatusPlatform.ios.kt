@@ -1,11 +1,18 @@
 package com.nuvio.app.features.downloads
 
+import com.nuvio.app.core.i18n.localizedSeasonEpisodeCode
 import kotlinx.serialization.Serializable
 import kotlinx.serialization.encodeToString
 import kotlinx.serialization.json.Json
 import platform.Foundation.NSNotificationCenter
 import platform.Foundation.NSUserDefaults
 
+/**
+ * Feeds the Live Activity with the download that is running: its show and episode, that it is
+ * downloading, and its file size. Progress is left out on purpose: iOS lets the app change what the
+ * activity shows only while the app runs, so a progress figure would freeze with the app suspended.
+ * It changes when the next download in the queue starts.
+ */
 internal actual object DownloadsLiveStatusPlatform {
     private const val notificationName = "NuvioDownloadsLiveStatusUpdated"
     private const val userDefaultsPayloadKey = "nuvio.downloads.live_status.payload"
@@ -17,15 +24,28 @@ internal actual object DownloadsLiveStatusPlatform {
     private var lastPayload: String? = null
 
     actual fun onItemsChanged(items: List<DownloadItem>) {
+        publish(items, appIsAwake = true)
+    }
+
+    /**
+     * Called when the system wakes the app only to report a finished download, with the downloads that
+     * are running now, so the activity can move on to the next one or end.
+     */
+    fun onBackgroundItems(items: List<DownloadItem>) {
+        publish(items, appIsAwake = false)
+    }
+
+    private fun publish(items: List<DownloadItem>, appIsAwake: Boolean) {
+        // A download waiting in line is not downloading yet, so it is not shown.
         val primary = items
             .filter { item ->
-                item.status == DownloadStatus.Downloading ||
-                    item.status == DownloadStatus.Paused ||
-                    item.status == DownloadStatus.Failed
+                val running = item.status == DownloadStatus.Downloading &&
+                    !DownloadsPlatformDownloader.isQueued(item.fileName)
+                running || item.status == DownloadStatus.Paused || item.status == DownloadStatus.Failed
             }
             .sortedWith(
                 compareBy<DownloadItem> { statusPriority(it.status) }
-                    .thenByDescending { it.updatedAtEpochMs },
+                    .thenBy { it.createdAtEpochMs },
             )
             .firstOrNull()
 
@@ -34,22 +54,15 @@ internal actual object DownloadsLiveStatusPlatform {
                 DownloadsLiveStatusPayload(
                     id = item.id,
                     title = item.title,
-                    subtitle = item.displaySubtitle,
+                    subtitle = subtitleFor(item),
                     status = item.status.name,
-                    downloadedBytes = item.downloadedBytes,
-                    totalBytes = item.totalBytes,
-                    progressPercent = if (item.totalBytes != null && item.totalBytes > 0L) {
-                        ((item.downloadedBytes.toDouble() / item.totalBytes.toDouble()) * 100.0)
-                            .toInt()
-                            .coerceIn(0, 100)
-                    } else {
-                        -1
-                    },
+                    totalBytes = item.totalBytes?.takeIf { it > 0L },
                 ),
             )
         }
 
-        if (payload == lastPayload) return
+        // A wake-up from the system posts every time: this process may be new, with nothing remembered.
+        if (appIsAwake && payload == lastPayload) return
         lastPayload = payload
 
         val defaults = NSUserDefaults.standardUserDefaults
@@ -60,6 +73,12 @@ internal actual object DownloadsLiveStatusPlatform {
         }
 
         NSNotificationCenter.defaultCenter.postNotificationName(notificationName, null)
+    }
+
+    private fun subtitleFor(item: DownloadItem): String {
+        val code = localizedSeasonEpisodeCode(item.seasonNumber, item.episodeNumber)
+        val parts = listOfNotNull(code, item.episodeTitle?.takeIf { it.isNotBlank() })
+        return if (parts.isEmpty()) item.displaySubtitle else parts.joinToString(" · ")
     }
 
     private fun statusPriority(status: DownloadStatus): Int = when (status) {
@@ -76,7 +95,5 @@ private data class DownloadsLiveStatusPayload(
     val title: String,
     val subtitle: String,
     val status: String,
-    val downloadedBytes: Long,
     val totalBytes: Long? = null,
-    val progressPercent: Int,
 )

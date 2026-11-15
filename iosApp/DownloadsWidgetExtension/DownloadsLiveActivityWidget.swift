@@ -5,8 +5,8 @@ import WidgetKit
 struct DownloadsLiveActivityAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
         let status: String
-        let progressPercent: Int
-        let transferredText: String
+        /// The file size, or empty when it is not known.
+        let sizeText: String
     }
 
     let downloadId: String
@@ -14,6 +14,10 @@ struct DownloadsLiveActivityAttributes: ActivityAttributes {
     let subtitle: String
 }
 
+/// Shows the download that is running: its show and episode, that it is downloading, and its size.
+/// There is no progress figure on purpose: iOS only lets the app change what this shows while the
+/// app runs, so a progress figure would freeze when the app is left. It changes when the next
+/// download in the queue starts.
 @available(iOSApplicationExtension 16.1, *)
 struct DownloadsLiveActivityWidget: Widget {
     private let downloadsUrl = URL(string: "nuvio://downloads")
@@ -26,18 +30,20 @@ struct DownloadsLiveActivityWidget: Widget {
         } dynamicIsland: { context in
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Text(statusLabel(context.state.status))
+                    Label(statusLabel(context.state.status), systemImage: statusIcon(context.state.status))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.88))
                         .lineLimit(1)
                 }
                 DynamicIslandExpandedRegion(.trailing) {
-                    Text(progressLabel(context.state.progressPercent))
-                        .font(.title3.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.white)
+                    if !context.state.sizeText.isEmpty {
+                        Text(context.state.sizeText)
+                            .font(.caption.monospacedDigit().weight(.semibold))
+                            .foregroundStyle(.white.opacity(0.88))
+                    }
                 }
                 DynamicIslandExpandedRegion(.bottom) {
-                    VStack(alignment: .leading, spacing: 8) {
+                    VStack(alignment: .leading, spacing: 4) {
                         Text(context.attributes.title)
                             .font(.subheadline.weight(.semibold))
                             .lineLimit(1)
@@ -49,18 +55,6 @@ struct DownloadsLiveActivityWidget: Widget {
                             .lineLimit(1)
                             .minimumScaleFactor(0.9)
                             .truncationMode(.tail)
-                        ProgressView(value: normalizedProgress(context.state.progressPercent))
-                            .progressViewStyle(.linear)
-                            .tint(appBlue)
-                        HStack {
-                            Text(context.state.transferredText)
-                                .font(.caption.monospacedDigit())
-                                .foregroundStyle(.white.opacity(0.86))
-                            Spacer(minLength: 6)
-                            Label(statusLabel(context.state.status), systemImage: "arrow.down")
-                                .font(.caption)
-                                .foregroundStyle(.white.opacity(0.86))
-                        }
                     }
                     .padding(.top, 4)
                     .padding(.horizontal, 10)
@@ -68,8 +62,8 @@ struct DownloadsLiveActivityWidget: Widget {
             } compactLeading: {
                 AccentGlyphView()
             } compactTrailing: {
-                Text(progressLabel(context.state.progressPercent))
-                    .font(.caption2.monospacedDigit())
+                Image(systemName: statusIcon(context.state.status))
+                    .font(.caption2.bold())
                     .foregroundStyle(appBlue)
             } minimal: {
                 AccentGlyphView()
@@ -77,16 +71,6 @@ struct DownloadsLiveActivityWidget: Widget {
             .widgetURL(downloadsUrl)
             .keylineTint(appBlue)
         }
-    }
-
-    private func progressLabel(_ progressPercent: Int) -> String {
-        if progressPercent < 0 { return "--%" }
-        return "\(max(0, min(100, progressPercent)))%"
-    }
-
-    private func normalizedProgress(_ progressPercent: Int) -> Double {
-        guard progressPercent >= 0 else { return 0 }
-        return min(max(Double(progressPercent) / 100.0, 0), 1)
     }
 
     private func statusLabel(_ status: String) -> String {
@@ -98,6 +82,13 @@ struct DownloadsLiveActivityWidget: Widget {
         }
     }
 
+    private func statusIcon(_ status: String) -> String {
+        switch status.lowercased() {
+        case "paused": return "pause.fill"
+        case "failed": return "exclamationmark.triangle.fill"
+        default: return "arrow.down"
+        }
+    }
 }
 
 @available(iOSApplicationExtension 16.1, *)
@@ -112,45 +103,36 @@ private struct DownloadActivityLockScreenView: View {
                 endPoint: .bottomTrailing,
             )
 
-            VStack(alignment: .leading, spacing: 12) {
-                HStack(alignment: .top, spacing: 10) {
-                    VStack(alignment: .leading, spacing: 6) {
-                        Text(context.attributes.title)
-                            .font(.headline.weight(.semibold))
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                        Text(context.attributes.subtitle)
-                            .font(.subheadline)
-                            .foregroundStyle(.white.opacity(0.82))
-                            .lineLimit(2)
-                            .fixedSize(horizontal: false, vertical: true)
-                    }
-                    Spacer(minLength: 10)
-                    Text(progressLabel(context.state.progressPercent))
-                        .font(.title3.monospacedDigit().weight(.semibold))
-                        .foregroundStyle(.white)
-                        .padding(.top, 1)
+            VStack(alignment: .leading, spacing: 10) {
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(context.attributes.title)
+                        .font(.headline.weight(.semibold))
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
+                    Text(context.attributes.subtitle)
+                        .font(.subheadline)
+                        .foregroundStyle(.white.opacity(0.82))
+                        .lineLimit(2)
+                        .fixedSize(horizontal: false, vertical: true)
                 }
 
-                ProgressView(value: normalizedProgress(context.state.progressPercent))
-                    .progressViewStyle(.linear)
-                    .tint(.white)
-
                 HStack {
-                    Label(statusLabel(context.state.status), systemImage: "arrow.down")
-                        .font(.caption)
-                        .foregroundStyle(.white.opacity(0.86))
+                    Label(statusLabel(context.state.status), systemImage: statusIcon(context.state.status))
+                        .font(.caption.weight(.semibold))
+                        .foregroundStyle(.white.opacity(0.9))
                     Spacer()
-                    Text(context.state.transferredText)
-                        .font(.caption.monospacedDigit())
-                        .foregroundStyle(.white.opacity(0.86))
+                    if !context.state.sizeText.isEmpty {
+                        Text(context.state.sizeText)
+                            .font(.caption.monospacedDigit())
+                            .foregroundStyle(.white.opacity(0.86))
+                    }
                 }
             }
             .padding(.horizontal, 16)
             .padding(.vertical, 16)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
         }
-        .frame(maxWidth: .infinity, minHeight: 168, maxHeight: .infinity, alignment: .top)
+        .frame(maxWidth: .infinity, minHeight: 96, maxHeight: .infinity, alignment: .top)
         .clipShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
         .overlay(
             RoundedRectangle(cornerRadius: 14, style: .continuous)
@@ -160,22 +142,20 @@ private struct DownloadActivityLockScreenView: View {
         .activitySystemActionForegroundColor(.white)
     }
 
-    private func progressLabel(_ progressPercent: Int) -> String {
-        if progressPercent < 0 { return "--%" }
-        return "\(max(0, min(100, progressPercent)))%"
-    }
-
-    private func normalizedProgress(_ progressPercent: Int) -> Double {
-        guard progressPercent >= 0 else { return 0 }
-        return min(max(Double(progressPercent) / 100.0, 0), 1)
-    }
-
     private func statusLabel(_ status: String) -> String {
         switch status.lowercased() {
         case "downloading": return "Downloading"
         case "paused": return "Paused"
         case "failed": return "Failed"
         default: return "Active"
+        }
+    }
+
+    private func statusIcon(_ status: String) -> String {
+        switch status.lowercased() {
+        case "paused": return "pause.fill"
+        case "failed": return "exclamationmark.triangle.fill"
+        default: return "arrow.down"
         }
     }
 

@@ -60,8 +60,7 @@ final class DownloadsLiveActivityManager {
 
         let state = DownloadsLiveActivityAttributes.ContentState(
             status: payload.status,
-            progressPercent: payload.progressPercent,
-            transferredText: transferredText(payload)
+            sizeText: sizeText(payload)
         )
 
         if let existing, existing.attributes.downloadId == payload.id {
@@ -87,12 +86,10 @@ final class DownloadsLiveActivityManager {
     }
 #endif
 
-    private func transferredText(_ payload: DownloadsLiveStatusPayload) -> String {
-        let downloaded = formatBytes(payload.downloadedBytes)
-        if let total = payload.totalBytes {
-            return "\(downloaded) / \(formatBytes(total))"
-        }
-        return downloaded
+    /// The file size, when it is known.
+    private func sizeText(_ payload: DownloadsLiveStatusPayload) -> String {
+        guard let total = payload.totalBytes, total > 0 else { return "" }
+        return formatBytes(total)
     }
 
     private func formatBytes(_ bytes: Int64) -> String {
@@ -108,8 +105,7 @@ final class DownloadsLiveActivityManager {
 struct DownloadsLiveActivityAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
         let status: String
-        let progressPercent: Int
-        let transferredText: String
+        let sizeText: String
     }
 
     let downloadId: String
@@ -123,7 +119,5 @@ private struct DownloadsLiveStatusPayload: Decodable {
     let title: String
     let subtitle: String
     let status: String
-    let downloadedBytes: Int64
     let totalBytes: Int64?
-    let progressPercent: Int
 }
