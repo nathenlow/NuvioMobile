@@ -60,16 +60,16 @@ final class DownloadsLiveActivityManager {
 
         let state = DownloadsLiveActivityAttributes.ContentState(
             status: payload.status,
-            sizeText: sizeText(payload)
+            sizeText: sizeText(payload),
+            title: payload.title,
+            subtitle: payload.subtitle
         )
 
-        if let existing, existing.attributes.downloadId == payload.id {
+        // One activity for the whole queue: it is updated in place, which works with the app in the
+        // background, while starting a new one does not.
+        if let existing {
             await existing.update(using: state)
             return
-        }
-
-        if let existing {
-            await existing.end(dismissalPolicy: .immediate)
         }
 
         let attributes = DownloadsLiveActivityAttributes(
@@ -106,6 +106,8 @@ struct DownloadsLiveActivityAttributes: ActivityAttributes {
     public struct ContentState: Codable, Hashable {
         let status: String
         let sizeText: String
+        let title: String
+        let subtitle: String
     }
 
     let downloadId: String

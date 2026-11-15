@@ -7,6 +7,10 @@ struct DownloadsLiveActivityAttributes: ActivityAttributes {
         let status: String
         /// The file size, or empty when it is not known.
         let sizeText: String
+        /// The show and episode live in the state, so one activity can move on to the next episode:
+        /// an app in the background may update an activity, but not start a new one.
+        let title: String
+        let subtitle: String
     }
 
     let downloadId: String
@@ -44,12 +48,12 @@ struct DownloadsLiveActivityWidget: Widget {
                 }
                 DynamicIslandExpandedRegion(.bottom) {
                     VStack(alignment: .leading, spacing: 4) {
-                        Text(context.attributes.title)
+                        Text(context.state.title)
                             .font(.subheadline.weight(.semibold))
                             .lineLimit(1)
                             .minimumScaleFactor(0.86)
                             .truncationMode(.tail)
-                        Text(context.attributes.subtitle)
+                        Text(context.state.subtitle)
                             .font(.caption)
                             .foregroundStyle(.white.opacity(0.82))
                             .lineLimit(1)
@@ -105,11 +109,11 @@ private struct DownloadActivityLockScreenView: View {
 
             VStack(alignment: .leading, spacing: 10) {
                 VStack(alignment: .leading, spacing: 4) {
-                    Text(context.attributes.title)
+                    Text(context.state.title)
                         .font(.headline.weight(.semibold))
                         .lineLimit(2)
                         .fixedSize(horizontal: false, vertical: true)
-                    Text(context.attributes.subtitle)
+                    Text(context.state.subtitle)
                         .font(.subheadline)
                         .foregroundStyle(.white.opacity(0.82))
                         .lineLimit(2)
