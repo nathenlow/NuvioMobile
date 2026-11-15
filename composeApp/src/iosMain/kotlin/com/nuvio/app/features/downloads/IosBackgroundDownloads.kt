@@ -214,8 +214,15 @@ internal object IosBackgroundDownloads {
             it.taskDescription != null &&
                 (it.state == NSURLSessionTaskStateRunning || it.state == NSURLSessionTaskStateSuspended)
         }
-        val liveNames = live.mapNotNull { it.taskDescription }.toSet()
-        live.filter { it.state == NSURLSessionTaskStateSuspended }.forEach { it.resume() }
+        // A transfer that is neither marked running nor waiting was paused or removed: it must not hold a slot.
+        val orphans = live.filter {
+            val n = it.taskDescription.orEmpty()
+            !exists(statePath(n, "active")) && !exists(statePath(n, "queued"))
+        }
+        orphans.forEach { it.cancel() }
+        val liveTasks = live.filterNot { it in orphans }
+        val liveNames = liveTasks.mapNotNull { it.taskDescription }.toSet()
+        liveTasks.filter { it.state == NSURLSessionTaskStateSuspended }.forEach { it.resume() }
 
         // A download marked as running whose task is gone (the system dropped it) goes back in line.
         for (name in markerNames("active")) {
