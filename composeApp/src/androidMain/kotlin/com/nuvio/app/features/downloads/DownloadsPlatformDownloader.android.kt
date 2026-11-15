@@ -6,7 +6,10 @@ import androidx.core.content.FileProvider
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.map
 import kotlinx.coroutines.flow.collect
 import kotlinx.coroutines.flow.distinctUntilChanged
@@ -75,8 +78,77 @@ internal actual object DownloadsPlatformDownloader {
         return runCatching { file.delete() }.getOrDefault(false)
     }
 
-    actual fun listDownloadEntries(): List<String> =
-        downloadScheduler?.directory?.list()?.toList().orEmpty()
+    actual val managesQueue: Boolean = true
+
+    actual fun isQueued(fileName: String): Boolean = downloadScheduler?.isQueued(fileName) == true
+
+    actual fun reprioritize(fileNames: List<String>) {
+        downloadScheduler?.reprioritize(fileNames)
+    }
+
+    actual fun listDownloadEntries(): List<String> {
+        val context = appContext ?: return emptyList()
+        return AndroidDownloadStorage.volumes(context)
+            .flatMap { it.directory.list()?.toList().orEmpty() }
+            .distinct()
+    }
+
+    actual fun storageVolumes(): List<DownloadStorageVolume> {
+        val context = appContext ?: return emptyList()
+        return AndroidDownloadStorage.volumes(context).map {
+            DownloadStorageVolume(
+                id = it.id,
+                label = it.label,
+                removable = it.removable,
+                freeBytes = it.freeBytes,
+                totalBytes = it.totalBytes,
+            )
+        }
+    }
+
+    actual fun selectedStorageVolumeId(): String {
+        val context = appContext ?: return AndroidDownloadStorage.INTERNAL_ID
+        return AndroidDownloadStorage.currentVolume(context).id
+    }
+
+    actual fun selectStorageVolume(volumeId: String) {
+        DownloadsStorage.saveStorageVolumeId(volumeId)
+    }
+
+    actual fun storageVolumeIdOf(item: DownloadItem): String? {
+        val context = appContext ?: return null
+        item.localFileUri?.toLocalFileOrNull()?.takeIf { it.exists() }?.let {
+            return AndroidDownloadStorage.volumeIdOf(context, it)
+        }
+        return AndroidDownloadStorage.volumes(context).firstOrNull { volume ->
+            File(volume.directory, item.fileName).exists() || File(volume.directory, "${item.fileName}.part").exists()
+        }?.id
+    }
+
+    actual fun isOnDisconnectedStorage(localFileUri: String?): Boolean {
+        val context = appContext ?: return false
+        val file = localFileUri?.toLocalFileOrNull() ?: return false
+        return AndroidDownloadStorage.isOnDisconnectedStorage(context, file)
+    }
+
+    actual suspend fun moveToVolume(item: DownloadItem, volumeId: String, onBytes: (Long) -> Unit): DownloadItem =
+        withContext(Dispatchers.IO) {
+            val context = checkNotNull(appContext) { "Downloads are not initialized" }
+            val target = AndroidDownloadStorage.volumes(context).firstOrNull { it.id == volumeId }
+                ?: error("That storage is not connected")
+            check(target.directory.isDirectory || target.directory.mkdirs()) { "Cannot create the downloads folder" }
+            val video = item.localFileUri?.toLocalFileOrNull()?.takeIf { it.exists() }
+            val sourceDir = video?.parentFile ?: AndroidDownloadStorage.directoryFor(context, item.fileName)
+            if (sourceDir.canonicalPath == target.directory.canonicalPath) return@withContext item
+            moveDownloadFiles(item.fileName, sourceDir, target.directory, onBytes)
+            val moved = File(target.directory, item.fileName)
+            if (item.status == DownloadStatus.Completed && moved.exists()) {
+                item.copy(localFileUri = moved.toURI().toString())
+            } else {
+                item
+            }
+        }
+
 
     actual fun removePartialFile(destinationFileName: String): Boolean {
         val scheduler = downloadScheduler ?: return false
@@ -97,14 +169,16 @@ internal actual object DownloadsPlatformDownloader {
                 ?.name
                 ?.takeIf { it.isNotBlank() }
             ?: return null
-        val downloadsDir = File(context.filesDir, "downloads")
-        val localFile = File(downloadsDir, fileName)
-        return localFile.takeIf { it.exists() }?.toURI()?.toString()
+        // The file may be on any storage the downloads were kept on.
+        return AndroidDownloadStorage.volumes(context)
+            .map { File(it.directory, fileName) }
+            .firstOrNull { it.exists() }
+            ?.toURI()?.toString()
     }
 
     actual fun openDownloadsDirectory(): Boolean {
         val context = appContext ?: return false
-        val downloadsDir = File(context.filesDir, "downloads").apply { mkdirs() }
+        val downloadsDir = AndroidDownloadStorage.currentVolume(context).directory.apply { mkdirs() }
         val uri = runCatching {
             FileProvider.getUriForFile(
                 context,
@@ -147,4 +221,61 @@ private fun String.toLocalFileOrNull(): File? {
             File(this)
         }
     }.getOrNull()
+}
+
+/**
+ * Moves one file or folder. On the same disk it is renamed; between disks it is copied to a temporary
+ * name and renamed, and the original is removed only after the copy is complete.
+ */
+/**
+ * Moves one download's files from [sourceDir] to [targetDir]: the video or partial file, and the side
+ * folders (subtitles, pictures, record) next to it. Set [tryRename] to false to force the copy path
+ * used between two disks.
+ */
+internal suspend fun moveDownloadFiles(
+    fileName: String,
+    sourceDir: File,
+    targetDir: File,
+    onBytes: (Long) -> Unit,
+    tryRename: Boolean = true,
+) {
+    listOf(fileName, "$fileName.part", "$fileName.subtitles", "$fileName.artwork").forEach { name ->
+        val source = File(sourceDir, name)
+        if (source.exists()) moveEntry(source, File(targetDir, name), onBytes, tryRename)
+    }
+}
+
+private suspend fun moveEntry(source: File, destination: File, onBytes: (Long) -> Unit, tryRename: Boolean = true) {
+    if (source.isDirectory) {
+        check(destination.isDirectory || destination.mkdirs()) { "Cannot create ${destination.name}" }
+        source.listFiles().orEmpty().forEach { moveEntry(it, File(destination, it.name), onBytes, tryRename) }
+        source.delete()
+        return
+    }
+    val size = source.length()
+    if (tryRename && source.renameTo(destination)) {
+        onBytes(size)
+        return
+    }
+    val temporary = File(destination.parentFile, destination.name + ".moving")
+    try {
+        source.inputStream().use { input ->
+            temporary.outputStream().use { output ->
+                val buffer = ByteArray(256 * 1024)
+                while (true) {
+                    currentCoroutineContext().ensureActive()
+                    val read = input.read(buffer)
+                    if (read < 0) break
+                    output.write(buffer, 0, read)
+                    onBytes(read.toLong())
+                }
+                output.fd.sync()
+            }
+        }
+        if (!temporary.renameTo(destination)) throw java.io.IOException("Could not finish moving ${source.name}")
+        source.delete()
+    } catch (error: Throwable) {
+        temporary.delete()
+        throw error
+    }
 }

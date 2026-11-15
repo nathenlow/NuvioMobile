@@ -67,4 +67,24 @@
     <string name="downloads_concurrent_title">Concurrent downloads</string>
     <string name="downloads_concurrent_description">How many downloads run at the same time. The rest wait their turn, in the order they were queued.</string>
     <string name="downloads_pause_all">Pause all</string>
+    <string name="downloads_storage_title">Download storage</string>
+    <string name="downloads_storage_internal">App storage</string>
+    <string name="downloads_storage_sheet_description">Where new downloads are saved. SD cards and USB drives show up here when they are connected.</string>
+    <string name="downloads_storage_free">%1$s free</string>
+    <string name="downloads_storage_count">%1$d downloads</string>
+    <string name="downloads_storage_move_title">Move existing downloads?</string>
+    <string name="downloads_storage_move_message">Move %1$d downloads (%2$s) to %3$s? New downloads are saved there either way.</string>
+    <string name="downloads_storage_move_confirm">Move</string>
+    <string name="downloads_storage_keep">Keep them where they are</string>
+    <string name="downloads_storage_move_here">Move downloads here</string>
+    <string name="downloads_storage_move_here_description">%1$d downloads are on other storage</string>
+    <string name="downloads_storage_moving">Moving downloads</string>
+    <string name="downloads_storage_moving_progress">%1$d of %2$d • %3$s of %4$s</string>
+    <string name="downloads_storage_moved">Moved %1$d downloads</string>
+    <string name="downloads_storage_moved_failed">Moved %1$d, %2$d could not be moved</string>
+    <string name="downloads_storage_active">Pause or finish your active downloads before moving them</string>
+    <string name="downloads_storage_no_space">Not enough free space on %1$s: needs %2$s, has %3$s</string>
+    <string name="downloads_storage_not_connected">That storage is not connected</string>
+    <string name="downloads_storage_busy">Downloads are already being moved</string>
+    <string name="downloads_verify_unavailable">%1$d downloads are on storage that is not connected and were left alone</string>
 </resources>

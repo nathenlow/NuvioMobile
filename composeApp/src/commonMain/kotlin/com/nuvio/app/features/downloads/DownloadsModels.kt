@@ -130,6 +130,16 @@ data class SavedEpisode(
     val runtime: Int? = null,
 )
 
+/** A place downloads can be stored: the app's private storage, or a removable SD card or USB drive. */
+data class DownloadStorageVolume(
+    val id: String,
+    /** The name to show for removable volumes. Known ids ("internal") are named by the screen. */
+    val label: String,
+    val removable: Boolean,
+    val freeBytes: Long,
+    val totalBytes: Long,
+)
+
 /** A downloaded movie or show, as listed in the download library. */
 data class DownloadedTitle(
     val metaId: String,

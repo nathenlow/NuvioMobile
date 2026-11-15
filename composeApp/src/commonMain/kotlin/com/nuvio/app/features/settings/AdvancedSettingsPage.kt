@@ -16,7 +16,11 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioToastController
+import com.nuvio.app.features.downloads.DownloadStorageMigrationDialog
+import com.nuvio.app.features.downloads.DownloadStorageSheet
 import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.downloadStorageName
+import com.nuvio.app.features.downloads.formatStorageBytes
 import com.nuvio.app.features.downloads.MAX_CONCURRENT_DOWNLOADS
 import com.nuvio.app.features.downloads.MIN_CONCURRENT_DOWNLOADS
 import org.jetbrains.compose.resources.getString
@@ -45,6 +49,9 @@ import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.downloads_concurrent_description
+import nuvio.composeapp.generated.resources.downloads_storage_free
+import nuvio.composeapp.generated.resources.downloads_storage_title
+import nuvio.composeapp.generated.resources.downloads_verify_unavailable
 import nuvio.composeapp.generated.resources.downloads_concurrent_title
 import nuvio.composeapp.generated.resources.downloads_full_episode_list_description
 import nuvio.composeapp.generated.resources.downloads_full_episode_list_title
@@ -184,6 +191,11 @@ private fun DownloadSettingsSection(isTablet: Boolean) {
     val saveFullEpisodeList by DownloadsRepository.saveFullEpisodeList.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var verifying by remember { mutableStateOf(false) }
+    var showStorageSheet by remember { mutableStateOf(false) }
+    // Read again each time the sheet closes, as an SD card may have been connected or removed.
+    val storageVolumes = remember(showStorageSheet) { DownloadsRepository.storageVolumes() }
+    DownloadStorageMigrationDialog()
+    if (showStorageSheet) DownloadStorageSheet(onDismiss = { showStorageSheet = false })
 
     SettingsSection(
         title = stringResource(Res.string.settings_advanced_section_downloads),
@@ -238,6 +250,18 @@ private fun DownloadSettingsSection(isTablet: Boolean) {
                     Icon(Icons.Rounded.Add, contentDescription = null)
                 }
             }
+            if (storageVolumes.size > 1) {
+                SettingsGroupDivider(isTablet = isTablet)
+                val selected = storageVolumes.firstOrNull { it.id == DownloadsRepository.selectedStorageVolumeId() }
+                    ?: storageVolumes.first()
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.downloads_storage_title),
+                    description = "${downloadStorageName(selected)} • " +
+                        stringResource(Res.string.downloads_storage_free, formatStorageBytes(selected.freeBytes)),
+                    isTablet = isTablet,
+                    onClick = { showStorageSheet = true },
+                )
+            }
             SettingsGroupDivider(isTablet = isTablet)
             SettingsSwitchRow(
                 title = stringResource(Res.string.downloads_full_episode_list_title),
@@ -272,13 +296,16 @@ private fun DownloadSettingsSection(isTablet: Boolean) {
                         } else {
                             getString(Res.string.downloads_verify_clean)
                         }
-                        NuvioToastController.show(
+                        val notes = buildList {
+                            add(summary)
                             if (result.unmatchedFiles > 0) {
-                                summary + "\n" + getString(Res.string.downloads_verify_unmatched, result.unmatchedFiles)
-                            } else {
-                                summary
-                            },
-                        )
+                                add(getString(Res.string.downloads_verify_unmatched, result.unmatchedFiles))
+                            }
+                            if (result.unavailableFiles > 0) {
+                                add(getString(Res.string.downloads_verify_unavailable, result.unavailableFiles))
+                            }
+                        }
+                        NuvioToastController.show(notes.joinToString("\n"))
                     }
                 },
             )

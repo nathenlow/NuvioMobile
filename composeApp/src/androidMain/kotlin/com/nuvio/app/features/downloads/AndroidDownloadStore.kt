@@ -17,6 +17,10 @@ internal data class AndroidDownloadTransfer(
     val generation: String,
     val validator: String? = null,
     val retryCount: Int = 0,
+    /** Waiting for a free slot under the concurrent download limit; no job is scheduled yet. */
+    val queued: Boolean = false,
+    /** Position in the waiting line; lower starts first. */
+    val queueOrder: Long = 0L,
 )
 
 internal class AndroidDownloadStore(private val directory: File) {

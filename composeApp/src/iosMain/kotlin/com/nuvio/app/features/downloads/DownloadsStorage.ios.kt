@@ -34,6 +34,10 @@ internal actual object DownloadsStorage {
         NSUserDefaults.standardUserDefaults.setBool(value, forKey = fullEpisodeListKey)
     }
 
+    actual fun loadStorageVolumeId(): String? = null
+
+    actual fun saveStorageVolumeId(value: String) = Unit
+
     actual fun saveMaxConcurrentDownloads(value: Int) {
         NSUserDefaults.standardUserDefaults.setInteger(value.toLong(), forKey = maxConcurrentKey)
     }

@@ -4,7 +4,9 @@ import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.player.SubtitleRequestExtras
 import com.nuvio.app.features.player.addonSubtitleRequests
 import com.nuvio.app.features.streams.StreamItem
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
@@ -59,6 +61,7 @@ object DownloadsRepository {
         _maxConcurrentDownloads.value = limit
         DownloadsStorage.saveMaxConcurrentDownloads(limit)
         pumpQueue()
+        syncPlatformPriority()
     }
 
     fun markCompletedSeen() {
@@ -434,6 +437,100 @@ object DownloadsRepository {
         }
     }
 
+    private val storageScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var storageJob: Job? = null
+
+    private val _storageMigration = MutableStateFlow(StorageMigrationState())
+    val storageMigration: StateFlow<StorageMigrationState> = _storageMigration.asStateFlow()
+
+    fun storageVolumes(): List<DownloadStorageVolume> = DownloadsPlatformDownloader.storageVolumes()
+
+    fun selectedStorageVolumeId(): String = DownloadsPlatformDownloader.selectedStorageVolumeId()
+
+    /** New downloads are saved to [volumeId]. Existing ones stay where they are until moved. */
+    fun selectStorageVolume(volumeId: String) {
+        DownloadsPlatformDownloader.selectStorageVolume(volumeId)
+    }
+
+    fun storageVolumeIdOf(item: DownloadItem): String? = DownloadsPlatformDownloader.storageVolumeIdOf(item)
+
+    /** Downloads whose files are not on [volumeId]. */
+    fun downloadsOutsideStorage(volumeId: String): List<DownloadItem> {
+        ensureLoaded()
+        return _uiState.value.items.filter { item ->
+            val where = DownloadsPlatformDownloader.storageVolumeIdOf(item)
+            where != null && where != volumeId
+        }
+    }
+
+    /**
+     * Moves every download's files to [volumeId], in the background of the app, reporting through
+     * [storageMigration]. Needs no download to be running. [onResult] is called when it ends.
+     */
+    fun startMoveToStorage(volumeId: String, onResult: (StorageMoveResult) -> Unit) {
+        if (storageJob?.isActive == true) {
+            onResult(StorageMoveResult.Busy)
+            return
+        }
+        storageJob = storageScope.launch { onResult(moveToStorage(volumeId)) }
+    }
+
+    fun cancelStorageMove() {
+        storageJob?.cancel()
+    }
+
+    private suspend fun moveToStorage(volumeId: String): StorageMoveResult {
+        ensureLoaded()
+        val target = DownloadsPlatformDownloader.storageVolumes().firstOrNull { it.id == volumeId }
+            ?: return StorageMoveResult.NotConnected
+        if (_uiState.value.items.any { it.status == DownloadStatus.Downloading }) {
+            return StorageMoveResult.ActiveDownloads
+        }
+        val toMove = downloadsOutsideStorage(volumeId)
+        if (toMove.isEmpty()) return StorageMoveResult.Done(moved = 0, failed = 0)
+        val totalBytes = toMove.sumOf { it.totalBytes ?: it.downloadedBytes }
+        if (target.freeBytes < totalBytes + STORAGE_SAFETY_MARGIN_BYTES) {
+            return StorageMoveResult.NotEnoughSpace(neededBytes = totalBytes, freeBytes = target.freeBytes)
+        }
+
+        _storageMigration.value = StorageMigrationState(running = true, totalBytes = totalBytes, totalItems = toMove.size)
+        var moved = 0
+        var failed = 0
+        try {
+            for (item in toMove) {
+                _storageMigration.update { it.copy(currentTitle = item.episodeTitle?.takeIf(String::isNotBlank) ?: item.title) }
+                try {
+                    val updated = DownloadsPlatformDownloader.moveToVolume(item, volumeId) { bytes ->
+                        _storageMigration.update { it.copy(movedBytes = it.movedBytes + bytes) }
+                    }
+                    if (updated.localFileUri != item.localFileUri) {
+                        mutateItem(item.id) { current -> current.copy(localFileUri = updated.localFileUri) }
+                    }
+                    moved++
+                } catch (error: CancellationException) {
+                    throw error
+                } catch (error: Throwable) {
+                    failed++
+                }
+                _storageMigration.update { it.copy(doneItems = it.doneItems + 1) }
+            }
+        } finally {
+            // Even when stopped part-way, point finished downloads at the files where they are now.
+            withContext(NonCancellable) {
+                var changed = false
+                val fixed = _uiState.value.items.map { item ->
+                    normalizeCompletedLocalFileUri(item).also { if (it != item) changed = true }
+                }
+                if (changed) {
+                    publish(fixed)
+                    persist()
+                }
+                _storageMigration.value = StorageMigrationState()
+            }
+        }
+        return StorageMoveResult.Done(moved = moved, failed = failed)
+    }
+
     /** Deletes every download of a title, finished or not, along with the details saved for it. */
     fun deleteTitleDownloads(parentMetaId: String): Int {
         ensureLoaded()
@@ -476,9 +573,13 @@ object DownloadsRepository {
         val items = _uiState.value.items
 
         // Finished downloads whose video file no longer exists.
-        val missing = items.filter { item ->
+        val withoutFile = items.filter { item ->
             item.status == DownloadStatus.Completed &&
                 DownloadsPlatformDownloader.resolveLocalFileUri(item.localFileUri, item.fileName) == null
+        }
+        // A file on an SD card that is taken out is not gone: leave those downloads alone.
+        val (unavailable, missing) = withoutFile.partition { item ->
+            DownloadsPlatformDownloader.isOnDisconnectedStorage(item.localFileUri)
         }
         missing.forEach { DownloadsPlatformDownloader.removePartialFile(it.fileName) }
         val missingIds = missing.mapTo(hashSetOf()) { it.id }
@@ -549,6 +650,7 @@ object DownloadsRepository {
             restoredRecords = restored.size,
             cleanedLeftovers = cleaned,
             unmatchedFiles = unmatched,
+            unavailableFiles = unavailable.size,
         )
     }
 
@@ -562,6 +664,7 @@ object DownloadsRepository {
         items.add(to, items.removeAt(from))
         publish(items)
         persist()
+        syncPlatformPriority()
     }
 
     /** Puts one unfinished download first in line. A running download is not interrupted. */
@@ -574,6 +677,7 @@ object DownloadsRepository {
         items.add(items.indexOfFirst { it.status != DownloadStatus.Completed }.coerceAtLeast(0), item)
         publish(items)
         persist()
+        syncPlatformPriority()
     }
 
     /** Puts every unfinished download of a show first in line, first episode first. */
@@ -590,6 +694,7 @@ object DownloadsRepository {
         items.addAll(items.indexOfFirst { it.status != DownloadStatus.Completed }.coerceAtLeast(0), series)
         publish(items)
         persist()
+        syncPlatformPriority()
     }
 
     private fun loadFromDisk() {
@@ -638,7 +743,9 @@ object DownloadsRepository {
 
     private fun pumpQueue() {
         // The list order is the priority order, so the first waiting download in the list starts next.
-        while (activeHandles.size < _maxConcurrentDownloads.value) {
+        // Where the platform keeps the queue itself (Android), everything is handed over at once.
+        val capacity = if (DownloadsPlatformDownloader.managesQueue) Int.MAX_VALUE else _maxConcurrentDownloads.value
+        while (activeHandles.size < capacity) {
             val item = _uiState.value.items.firstOrNull { candidate ->
                 candidate.id in startQueue &&
                     candidate.status == DownloadStatus.Downloading &&
@@ -754,9 +861,25 @@ object DownloadsRepository {
         }
         _uiState.value = _uiState.value.copy(
             items = items,
-            queuedIds = startQueue.toSet(),
+            queuedIds = startQueue.toSet() + platformQueuedIds(items),
         )
         notifyLiveStatusPlatform()
+    }
+
+    private fun platformQueuedIds(items: List<DownloadItem>): Set<String> =
+        if (DownloadsPlatformDownloader.managesQueue) {
+            items.filter { it.status == DownloadStatus.Downloading && DownloadsPlatformDownloader.isQueued(it.fileName) }
+                .mapTo(hashSetOf()) { it.id }
+        } else {
+            emptySet()
+        }
+
+    /** Tells the platform the current priority order, and applies a changed concurrent limit. */
+    private fun syncPlatformPriority() {
+        if (!DownloadsPlatformDownloader.managesQueue) return
+        DownloadsPlatformDownloader.reprioritize(
+            _uiState.value.items.filter { it.status == DownloadStatus.Downloading }.map { it.fileName },
+        )
     }
 
     private fun notifyLiveStatusPlatform() {
@@ -1017,7 +1140,29 @@ data class DownloadsVerifyResult(
     val restoredRecords: Int,
     val cleanedLeftovers: Int,
     val unmatchedFiles: Int,
+    /** Downloads on storage that is not connected, which were left alone. */
+    val unavailableFiles: Int = 0,
 ) {
     val changedAnything: Boolean
         get() = removedRecords + restoredRecords + cleanedLeftovers > 0
+}
+
+private const val STORAGE_SAFETY_MARGIN_BYTES = 64L * 1024L * 1024L
+
+/** Progress of moving downloads to another storage. */
+data class StorageMigrationState(
+    val running: Boolean = false,
+    val movedBytes: Long = 0L,
+    val totalBytes: Long = 0L,
+    val doneItems: Int = 0,
+    val totalItems: Int = 0,
+    val currentTitle: String? = null,
+)
+
+sealed interface StorageMoveResult {
+    data class Done(val moved: Int, val failed: Int) : StorageMoveResult
+    data object ActiveDownloads : StorageMoveResult
+    data class NotEnoughSpace(val neededBytes: Long, val freeBytes: Long) : StorageMoveResult
+    data object NotConnected : StorageMoveResult
+    data object Busy : StorageMoveResult
 }

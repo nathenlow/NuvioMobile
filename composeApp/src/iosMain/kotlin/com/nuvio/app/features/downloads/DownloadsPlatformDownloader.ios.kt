@@ -165,6 +165,25 @@ internal actual object DownloadsPlatformDownloader {
         return removePathIfExists("${downloadsDirectoryPath()}/$fileName")
     }
 
+    actual val managesQueue: Boolean = false
+
+    actual fun storageVolumes(): List<DownloadStorageVolume> =
+        listOf(DownloadStorageVolume(id = "internal", label = "", removable = false, freeBytes = 0L, totalBytes = 0L))
+
+    actual fun selectedStorageVolumeId(): String = "internal"
+
+    actual fun selectStorageVolume(volumeId: String) = Unit
+
+    actual fun storageVolumeIdOf(item: DownloadItem): String? = "internal"
+
+    actual fun isOnDisconnectedStorage(localFileUri: String?): Boolean = false
+
+    actual suspend fun moveToVolume(item: DownloadItem, volumeId: String, onBytes: (Long) -> Unit): DownloadItem = item
+
+    actual fun isQueued(fileName: String): Boolean = false
+
+    actual fun reprioritize(fileNames: List<String>) = Unit
+
     @OptIn(ExperimentalForeignApi::class)
     actual fun listDownloadEntries(): List<String> =
         NSFileManager.defaultManager.contentsOfDirectoryAtPath(downloadsDirectoryPath(), null)

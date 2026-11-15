@@ -36,15 +36,59 @@ import okhttp3.ConnectionPool
 
 internal class AndroidDownloadScheduler(val context: Context) {
     val store = AndroidDownloadStore(File(context.filesDir, "download-transfers"))
-    val directory = File(context.filesDir, "downloads")
+    /** The folder new downloads go to: the chosen storage, or the private storage by default. */
+    val directory: File get() = AndroidDownloadStorage.currentVolume(context).directory
     private val locks = ConcurrentHashMap<String, Mutex>()
     private val cleanupScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
+    init {
+        // The limit is read here, also when a background job runs without the app's screens.
+        DownloadsStorage.initialize(context)
+    }
+
+    private fun concurrencyLimit(): Int =
+        (DownloadsStorage.loadMaxConcurrentDownloads() ?: DEFAULT_MAX_CONCURRENT_DOWNLOADS)
+            .coerceIn(MIN_CONCURRENT_DOWNLOADS, MAX_CONCURRENT_DOWNLOADS)
+
+    private fun runningCount(except: String? = null): Int = store.transfers.value.values.count {
+        it.item.status == DownloadStatus.Downloading && !it.queued && it.item.fileName != except
+    }
+
+    fun isQueued(fileName: String): Boolean = store.get(fileName)?.let {
+        it.queued && it.item.status == DownloadStatus.Downloading
+    } == true
+
+    /**
+     * Starts a download, or lines it up when the concurrent limit is reached. The waiting line is
+     * kept on disk and advanced here, as downloads finish, so it keeps moving with the app closed.
+     */
     fun enqueue(item: DownloadItem): AndroidDownloadTransfer {
         val previous = store.get(item.fileName)
         val transfer = store.begin(item)
         val existing = previous?.generation == transfer.generation
+        if (existing && transfer.queued) {
+            pump()
+            return store.get(item.fileName) ?: transfer
+        }
         if (existing && Build.VERSION.SDK_INT >= 34) return transfer
+        val waitingLineExists = store.transfers.value.values.any {
+            it.queued && it.item.status == DownloadStatus.Downloading && it.item.fileName != item.fileName
+        }
+        if (!existing && (waitingLineExists || runningCount(except = item.fileName) >= concurrencyLimit())) {
+            store.update(item.fileName, transfer.generation) {
+                it.copy(queued = true, queueOrder = nextQueueOrder())
+            }
+            return store.get(item.fileName) ?: transfer
+        }
+        schedule(transfer, existing)
+        return store.get(item.fileName) ?: transfer
+    }
+
+    private fun nextQueueOrder(): Long =
+        (store.transfers.value.values.maxOfOrNull { it.queueOrder } ?: 0L) + 1L
+
+    private fun schedule(transfer: AndroidDownloadTransfer, existing: Boolean) {
+        val item = transfer.item
         try {
             if (Build.VERSION.SDK_INT >= 34) {
                 check(jobScheduler().schedule(buildJob(transfer)) == JobScheduler.RESULT_SUCCESS) {
@@ -71,7 +115,35 @@ internal class AndroidDownloadScheduler(val context: Context) {
         } catch (error: Exception) {
             fail(transfer, error)
         }
-        return store.get(item.fileName) ?: transfer
+    }
+
+    /** Starts waiting downloads, first in line first, until the concurrent limit is reached. */
+    @Synchronized
+    fun pump() {
+        val limit = concurrencyLimit()
+        var running = runningCount()
+        val waiting = store.transfers.value.values
+            .filter { it.queued && it.item.status == DownloadStatus.Downloading }
+            .sortedBy { it.queueOrder }
+        for (candidate in waiting) {
+            if (running >= limit) break
+            val ready = store.update(candidate.item.fileName, candidate.generation) { it.copy(queued = false) }
+                ?: continue
+            schedule(ready, existing = false)
+            running++
+        }
+    }
+
+    /** Sets the waiting line to follow [fileNames], then starts whatever now fits. */
+    @Synchronized
+    fun reprioritize(fileNames: List<String>) {
+        var order = 1L
+        for (name in fileNames) {
+            val waiting = store.get(name)?.takeIf { it.queued && it.item.status == DownloadStatus.Downloading } ?: continue
+            store.update(name, waiting.generation) { it.copy(queueOrder = order) }
+            order++
+        }
+        pump()
     }
 
     @RequiresApi(34)
@@ -97,7 +169,7 @@ internal class AndroidDownloadScheduler(val context: Context) {
             ?: return if (item.status == DownloadStatus.Downloading) {
                 item.copy(status = DownloadStatus.Paused, errorMessage = null)
             } else item
-        if (transfer.item.status == DownloadStatus.Downloading && Build.VERSION.SDK_INT >= 34 &&
+        if (transfer.item.status == DownloadStatus.Downloading && !transfer.queued && Build.VERSION.SDK_INT >= 34 &&
             jobScheduler().getPendingJob(transfer.jobId) == null) {
             pause(item.fileName)
             transfer = store.get(item.fileName) ?: transfer
@@ -109,10 +181,11 @@ internal class AndroidDownloadScheduler(val context: Context) {
         val transfer = store.get(fileName) ?: return
         if (transfer.item.status != DownloadStatus.Downloading) return
         val paused = store.update(fileName, transfer.generation) {
-            it.copy(item = it.item.copy(status = DownloadStatus.Paused, errorMessage = null))
+            it.copy(item = it.item.copy(status = DownloadStatus.Paused, errorMessage = null), queued = false)
         }
         cancelScheduled(transfer)
         paused?.let { DownloadsLiveStatusPlatform.notifyTransfer(it.item) }
+        pump()
     }
 
     fun remove(fileName: String) {
@@ -120,12 +193,16 @@ internal class AndroidDownloadScheduler(val context: Context) {
         store.remove(fileName)
         transfer?.let(::cancelScheduled)
         transfer?.let { DownloadsLiveStatusPlatform.removeNotification(it.item.id) }
+        pump()
         cleanupScope.launch {
             lock(fileName).withLock {
                 if (store.get(fileName) == null) {
-                    File(directory, "$fileName.part").delete()
-                    DownloadSubtitleStorage(File(directory, fileName).toURI().toString()).remove()
-                    DownloadArtworkStorage(File(directory, fileName).toURI().toString()).remove()
+                    // The files may be on any storage the downloads were kept on.
+                    AndroidDownloadStorage.volumes(context).map { it.directory }.forEach { folder ->
+                        File(folder, "$fileName.part").delete()
+                        DownloadSubtitleStorage(File(folder, fileName).toURI().toString()).remove()
+                        DownloadArtworkStorage(File(folder, fileName).toURI().toString()).remove()
+                    }
                 }
             }
         }
@@ -140,9 +217,22 @@ internal class AndroidDownloadScheduler(val context: Context) {
         transfer: AndroidDownloadTransfer,
         network: Network? = null,
         onProgress: (AndroidDownloadTransfer) -> Unit,
+    ): Boolean = try {
+        executeTransfer(transfer, network, onProgress)
+    } finally {
+        // This transfer is done or stopped, so a waiting download can take its place, even with no screen open.
+        pump()
+    }
+
+    private suspend fun executeTransfer(
+        transfer: AndroidDownloadTransfer,
+        network: Network?,
+        onProgress: (AndroidDownloadTransfer) -> Unit,
     ): Boolean = lock(transfer.item.fileName).withLock {
         val fileName = transfer.item.fileName
         if (!isActive(transfer)) return@withLock false
+        // A download continues where it started, even if the chosen storage changed since.
+        val directory = AndroidDownloadStorage.directoryFor(context, fileName)
         val destination = File(directory, fileName)
         val client = if (network != null) {
             downloadHttpClient.newBuilder()
@@ -212,6 +302,7 @@ internal class AndroidDownloadScheduler(val context: Context) {
         updateActive(transfer) {
             it.copy(item = it.item.copy(status = DownloadStatus.Failed, errorMessage = error.message ?: "Download failed"))
         }
+        pump()
     }
 
     fun notifyCurrent(fileName: String) {

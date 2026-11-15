@@ -102,6 +102,50 @@ class AndroidDownloadLifecycleTest {
     }
 
     @Test
+    fun waitingDownloadStartsWhenAnotherFinishesWithNoAppOpen(): Unit = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        DownloadsStorage.initialize(context)
+        DownloadsStorage.saveMaxConcurrentDownloads(1)
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody("first"))
+            val scheduler = AndroidDownloadScheduler(context)
+            val first = downloadItem(server.url("/a").toString(), "a").copy(fileName = "a.mkv")
+            val second = downloadItem(server.url("/b").toString(), "b").copy(fileName = "b.mkv")
+
+            val firstTransfer = scheduler.enqueue(first)
+            scheduler.enqueue(second)
+            assertFalse(scheduler.isQueued("a.mkv"))
+            assertTrue(scheduler.isQueued("b.mkv"))
+
+            // The first finishes inside a background job: no repository and no screen is involved.
+            assertFalse(scheduler.execute(firstTransfer) { })
+
+            assertFalse(scheduler.isQueued("b.mkv"))
+        }
+    }
+
+    @Test
+    fun waitingLineFollowsTheRequestedOrder(): Unit = runBlocking {
+        val context = RuntimeEnvironment.getApplication()
+        DownloadsStorage.initialize(context)
+        DownloadsStorage.saveMaxConcurrentDownloads(1)
+        MockWebServer().use { server ->
+            server.enqueue(MockResponse().setBody("first"))
+            val scheduler = AndroidDownloadScheduler(context)
+            val names = listOf("a", "b", "c")
+            val transfers = names.map { name ->
+                scheduler.enqueue(downloadItem(server.url("/$name").toString(), name).copy(fileName = "$name.mkv"))
+            }
+            scheduler.reprioritize(listOf("a.mkv", "c.mkv", "b.mkv"))
+
+            assertFalse(scheduler.execute(transfers.first()) { })
+
+            assertFalse(scheduler.isQueued("c.mkv"))
+            assertTrue(scheduler.isQueued("b.mkv"))
+        }
+    }
+
+    @Test
     fun pausedTransferIsNotRestartedBySystemRedelivery(): Unit = runBlocking {
         val context = RuntimeEnvironment.getApplication()
         val scheduler = AndroidDownloadScheduler(context)

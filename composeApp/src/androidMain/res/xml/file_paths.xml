@@ -9,4 +9,8 @@
     <files-path
         name="nuvio_downloads"
         path="downloads/" />
+    <!-- Downloads kept on a removable SD card or USB drive, e.g. /storage/ABCD-1234/Android/data/... -->
+    <root-path
+        name="nuvio_downloads_removable"
+        path="storage/" />
 </paths>
