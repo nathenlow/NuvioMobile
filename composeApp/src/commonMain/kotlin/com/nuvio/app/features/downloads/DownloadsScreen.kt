@@ -152,6 +152,7 @@ fun DownloadsScreen(
                 onDeleteDownload = { downloadPendingDeletionId = it },
                 onCancelAll = { confirmCancelAll = true },
                 onResumeAll = { DownloadsRepository.resumeAllDownloads() },
+                onPauseAll = { DownloadsRepository.pauseActiveDownloads() },
                 onLongPressDownload = { item -> if (item.isEpisode) seriesActionTarget = item },
                 reorderState = reorderState,
             )
@@ -230,6 +231,7 @@ private fun LazyListScope.downloadsRootContent(
     onDeleteDownload: (String) -> Unit,
     onCancelAll: () -> Unit,
     onResumeAll: () -> Unit,
+    onPauseAll: () -> Unit,
     onLongPressDownload: (DownloadItem) -> Unit,
     reorderState: ReorderableLazyListState,
 ) {
@@ -247,13 +249,15 @@ private fun LazyListScope.downloadsRootContent(
 
     if (activeItems.isNotEmpty()) {
         item {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween,
-            ) {
+            Column(modifier = Modifier.fillMaxWidth()) {
                 SectionTitle(stringResource(Res.string.downloads_section_active))
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    TextButton(onClick = onPauseAll) {
+                        Text(stringResource(Res.string.downloads_pause_all))
+                    }
                     TextButton(onClick = onResumeAll) {
                         Text(stringResource(Res.string.downloads_resume_all))
                     }

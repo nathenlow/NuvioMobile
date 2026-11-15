@@ -66,4 +66,5 @@
     <string name="settings_advanced_section_downloads">Downloads</string>
     <string name="downloads_concurrent_title">Concurrent downloads</string>
     <string name="downloads_concurrent_description">How many downloads run at the same time. The rest wait their turn, in the order they were queued.</string>
+    <string name="downloads_pause_all">Pause all</string>
 </resources>
