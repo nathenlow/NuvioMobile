@@ -87,12 +87,24 @@ internal class AndroidDownloadScheduler(val context: Context) {
     private fun nextQueueOrder(): Long =
         (store.transfers.value.values.maxOfOrNull { it.queueOrder } ?: 0L) + 1L
 
-    private fun schedule(transfer: AndroidDownloadTransfer, existing: Boolean) {
+    /**
+     * [strict] is for a download the user just started, where a refusal is reported. When the queue
+     * advances on its own it is not strict: Android 14 and up only lets an app start a user-initiated
+     * job while it is visible, so a refusal leaves the download waiting for the running job to take it.
+     */
+    private fun schedule(transfer: AndroidDownloadTransfer, existing: Boolean, strict: Boolean = true) {
         val item = transfer.item
         try {
             if (Build.VERSION.SDK_INT >= 34) {
-                check(jobScheduler().schedule(buildJob(transfer)) == JobScheduler.RESULT_SUCCESS) {
-                    "Android could not start the download. Open the app and try again."
+                val started = try {
+                    jobScheduler().schedule(buildJob(transfer)) == JobScheduler.RESULT_SUCCESS
+                } catch (error: RuntimeException) {
+                    if (strict) throw error
+                    false
+                }
+                if (!started) {
+                    check(!strict) { "Android could not start the download. Open the app and try again." }
+                    store.update(item.fileName, transfer.generation) { it.copy(queued = true) }
                 }
             } else {
                 val work = OneTimeWorkRequestBuilder<DownloadsTransferWorker>()
@@ -129,9 +141,22 @@ internal class AndroidDownloadScheduler(val context: Context) {
             if (running >= limit) break
             val ready = store.update(candidate.item.fileName, candidate.generation) { it.copy(queued = false) }
                 ?: continue
-            schedule(ready, existing = false)
+            schedule(ready, existing = false, strict = false)
             running++
         }
+    }
+
+    /**
+     * Takes the next waiting download, if a slot is free, for the job that is already running to carry
+     * on with. A job that has just finished one download may not be allowed to start another job.
+     */
+    @Synchronized
+    internal fun claimNext(): AndroidDownloadTransfer? {
+        if (runningCount() >= concurrencyLimit()) return null
+        val next = store.transfers.value.values
+            .filter { it.queued && it.item.status == DownloadStatus.Downloading }
+            .minByOrNull { it.queueOrder } ?: return null
+        return store.update(next.item.fileName, next.generation) { it.copy(queued = false) }
     }
 
     /** Sets the waiting line to follow [fileNames], then starts whatever now fits. */

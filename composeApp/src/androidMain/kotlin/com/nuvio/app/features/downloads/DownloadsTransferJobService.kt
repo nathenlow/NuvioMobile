@@ -35,13 +35,24 @@ class DownloadsTransferJobService : JobService() {
             DownloadsLiveStatusPlatform.buildNotification(this, transfer.item), JOB_END_NOTIFICATION_POLICY_REMOVE)
         val run = scope.launch(start = CoroutineStart.LAZY) {
             try {
-                val retry = scheduler.execute(transfer, params.network) { updated ->
-                    updated.item.totalBytes?.let { updateEstimatedNetworkBytes(params, it, 0L) }
-                    updateTransferredNetworkBytes(params, updated.item.downloadedBytes, 0L)
-                    DownloadsLiveStatusPlatform.notifyTransfer(updated.item)
+                var current = transfer
+                var retry: Boolean
+                while (true) {
+                    retry = scheduler.execute(current, params.network) { updated ->
+                        updated.item.totalBytes?.let { updateEstimatedNetworkBytes(params, it, 0L) }
+                        updateTransferredNetworkBytes(params, updated.item.downloadedBytes, 0L)
+                        DownloadsLiveStatusPlatform.notifyTransfer(updated.item)
+                    }
+                    scheduler.notifyCurrent(current.item.fileName)
+                    if (retry) break
+                    // Carry on with the next waiting download in this same job, so the queue keeps going with the app closed.
+                    val next = scheduler.claimNext() ?: break
+                    setNotification(params, DownloadsLiveStatusPlatform.notificationId(next.item.id),
+                        DownloadsLiveStatusPlatform.buildNotification(this@DownloadsTransferJobService, next.item),
+                        JOB_END_NOTIFICATION_POLICY_REMOVE)
+                    current = next
                 }
                 jobFinished(params, retry)
-                scheduler.notifyCurrent(fileName)
             } finally {
                 if (runs[generation] === currentCoroutineContext()[Job]) runs.remove(generation)
             }
