@@ -512,12 +512,29 @@ fun NuvioToastHost(
                 tonalElevation = tokens.elevation.raised,
                 shadowElevation = tokens.elevation.overlay,
             ) {
-                Text(
-                    text = currentToast.message,
-                    modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16, vertical = NuvioTokens.Space.s12),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = tokens.colors.textPrimary,
-                )
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = currentToast.message,
+                        modifier = Modifier.padding(horizontal = NuvioTokens.Space.s16, vertical = NuvioTokens.Space.s12),
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = tokens.colors.textPrimary,
+                    )
+                    val actionLabel = currentToast.actionLabel
+                    val onAction = currentToast.onAction
+                    if (actionLabel != null && onAction != null) {
+                        Text(
+                            text = actionLabel,
+                            modifier = Modifier
+                                .clickable {
+                                    NuvioToastController.dismiss(currentToast.id)
+                                    onAction()
+                                }
+                                .padding(end = NuvioTokens.Space.s16, top = NuvioTokens.Space.s12, bottom = NuvioTokens.Space.s12),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                }
             }
         }
     }
@@ -527,6 +544,9 @@ data class NuvioToastMessage(
     val id: Long,
     val message: String,
     val durationMillis: Long,
+    /** An optional button on the toast, such as "Change list". */
+    val actionLabel: String? = null,
+    val onAction: (() -> Unit)? = null,
 )
 
 object NuvioToastController {
@@ -537,12 +557,17 @@ object NuvioToastController {
     fun show(
         message: String,
         durationMillis: Long = 2500L,
+        actionLabel: String? = null,
+        onAction: (() -> Unit)? = null,
     ) {
         nextToastId += 1L
         _currentToast.value = NuvioToastMessage(
             id = nextToastId,
             message = message,
-            durationMillis = durationMillis,
+            // A toast with a button stays a little longer, so there is time to reach it.
+            durationMillis = if (actionLabel != null) maxOf(durationMillis, 4000L) else durationMillis,
+            actionLabel = actionLabel,
+            onAction = onAction,
         )
     }
 

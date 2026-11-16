@@ -1,0 +1,12 @@
+<resources>
+    <string name="details_action_library">Library</string>
+    <string name="details_action_in_library">In Library</string>
+    <string name="details_action_watched">Watched</string>
+    <string name="details_action_download">Download</string>
+    <string name="details_action_shuffle">Shuffle</string>
+    <string name="details_action_shuffling">Shuffling</string>
+    <string name="details_action_sources">Sources</string>
+    <string name="details_action_sources_description">Choose a stream yourself</string>
+    <string name="details_added_to_library">Added to Library</string>
+    <string name="details_change_list">Change list</string>
+</resources>
