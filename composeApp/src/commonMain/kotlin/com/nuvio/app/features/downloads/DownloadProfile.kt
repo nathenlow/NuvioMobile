@@ -44,7 +44,10 @@ enum class ProfilePick {
 }
 
 @Serializable
-enum class ProfileConditionType { Cached, Source, Resolution, Size, Text }
+enum class ProfileConditionType {
+    Cached, Source, Resolution, Size, Text,
+    Addon, Quality, Codec, Hdr, BitDepth, Audio, Language, Edition,
+}
 
 @Serializable
 enum class ProfileSource { Debrid, Usenet, Http, Torrent }
@@ -71,6 +74,10 @@ data class ProfileCondition(
     val maxGb: Double? = null,
     /** Comma separated words: the stream matches when its text contains any of them. */
     val text: String = "",
+    /** Resolution "is one of": heights, 0 meaning the preferred resolution. Empty means [resolution]. */
+    val resolutions: List<Int> = emptyList(),
+    /** The chosen options of an Addon (addon names) or tag condition (ids from [ProfileTags]). */
+    val values: List<String> = emptyList(),
 )
 
 // ---- Reading a stream ------------------------------------------------------------------------
@@ -100,8 +107,11 @@ internal fun StreamItem.fileSizeBytes(): Long? =
             ?: debridCacheStatus?.cachedSize
         )?.takeIf { it > 0 }
 
+// The pieces are joined with " | " so a tag never runs across two of them.
 private fun StreamItem.searchableText(): String =
-    StreamBadgeMatcher.badgeMatchCandidates(this).joinToString(" ").lowercase()
+    StreamBadgeMatcher.badgeMatchCandidates(this).joinToString(" | ").lowercase()
+
+private fun wordPattern(word: String) = Regex("(?<![a-z0-9])${Regex.escape(word)}(?![a-z0-9])")
 
 private const val BYTES_PER_GB = 1024.0 * 1024.0 * 1024.0
 
@@ -112,18 +122,32 @@ internal fun ProfileCondition.matches(stream: StreamItem, preferredHeight: Int):
         ProfileConditionType.Cached -> stream.isCachedForDownload() == cached
         ProfileConditionType.Source -> sources.isNotEmpty() && stream.profileSource() in sources
         ProfileConditionType.Resolution -> {
-            val target = if (resolution > 0) resolution else preferredHeight
             val height = stream.resolutionHeight()
-            if (target <= 0 || height == null) {
+            fun resolve(value: Int) = if (value > 0) value else preferredHeight
+            if (height == null) {
                 false
+            } else if (resolutionOp == ProfileResolutionOp.Equals) {
+                resolutions.ifEmpty { listOf(resolution) }.map(::resolve).filter { it > 0 }.any { it == height }
             } else {
-                when (resolutionOp) {
-                    ProfileResolutionOp.Equals -> height == target
+                val target = resolve(resolution)
+                target > 0 && when (resolutionOp) {
                     ProfileResolutionOp.AtLeast -> height >= target
-                    ProfileResolutionOp.AtMost -> height <= target
+                    else -> height <= target
                 }
             }
         }
+        ProfileConditionType.Addon -> values.any { it.equals(stream.addonName, ignoreCase = true) }
+        ProfileConditionType.Language -> {
+            val words = text.split(',').map { it.trim().lowercase() }.filter { it.isNotEmpty() }
+            val reported = stream.clientResolve?.stream?.raw?.parsed?.languages.orEmpty().map { it.lowercase() }
+            val haystack = stream.searchableText()
+            words.isNotEmpty() && words.any { word ->
+                reported.any { it == word || it.startsWith(word) } || wordPattern(word).containsMatchIn(haystack)
+            }
+        }
+        ProfileConditionType.Quality, ProfileConditionType.Codec, ProfileConditionType.Hdr,
+        ProfileConditionType.BitDepth, ProfileConditionType.Audio, ProfileConditionType.Edition ->
+            ProfileTags.matchesAny(type, values, stream.searchableText())
         ProfileConditionType.Size -> {
             val gb = stream.fileSizeBytes()?.div(BYTES_PER_GB)
             gb != null && (minGb == null || gb >= minGb) && (maxGb == null || gb <= maxGb)

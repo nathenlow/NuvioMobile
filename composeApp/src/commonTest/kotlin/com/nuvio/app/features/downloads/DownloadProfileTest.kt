@@ -119,4 +119,98 @@ class DownloadProfileTest {
         assertEquals(profile.rules, back.rules)
         assertEquals(profile.exclusions, back.exclusions)
     }
+
+    private fun cond(type: ProfileConditionType, vararg values: String, negate: Boolean = false) =
+        ProfileCondition(type = type, values = values.toList(), negate = negate)
+
+    @Test
+    fun resolutionOneOfAndNoBluray() {
+        // "720p or 1080p, and not BluRay", the example from the request.
+        val profile = DownloadProfile(
+            id = "p",
+            name = "P",
+            rules = listOf(
+                ProfileRule(
+                    conditions = listOf(
+                        ProfileCondition(type = ProfileConditionType.Resolution, resolutions = listOf(720, 1080)),
+                        cond(ProfileConditionType.Quality, "bluray", negate = true),
+                    ),
+                ),
+            ),
+        )
+        val list = listOf(
+            http("Show S01E01 2160p WEB-DL"),
+            http("Show S01E01 1080p BluRay x264"),
+            http("Show S01E01 1080p BluRay REMUX"),
+            http("Show.S01E01.720p.WEB-DL.DDP5.1"),
+        )
+        assertEquals("Show.S01E01.720p.WEB-DL.DDP5.1", profile.pickStream(list, 0)?.name)
+    }
+
+    @Test
+    fun resolutionOneOfCanUseThePreferredResolution() {
+        val c = ProfileCondition(type = ProfileConditionType.Resolution, resolutions = listOf(0, 480))
+        assertEquals(true, c.matches(http("x 1080p"), 1080))
+        assertEquals(true, c.matches(http("x 480p"), 1080))
+        assertEquals(false, c.matches(http("x 720p"), 1080))
+    }
+
+    @Test
+    fun addonCondition() {
+        val c = cond(ProfileConditionType.Addon, "Torrentio")
+        assertEquals(true, c.matches(http("x").copy(addonName = "torrentio"), 0))
+        assertEquals(false, c.matches(http("x"), 0))
+    }
+
+    @Test
+    fun qualityTags() {
+        val q = ProfileConditionType.Quality
+        assertEquals(true, cond(q, "bluray").matches(http("Movie.2019.1080p.Blu-Ray.x264"), 0))
+        assertEquals(true, cond(q, "bluray").matches(http("Movie 1080p BDRip"), 0))
+        assertEquals(true, cond(q, "webdl").matches(http("Movie 1080p WEB-DL"), 0))
+        assertEquals(true, cond(q, "webdl").matches(http("Movie 1080p WEB H264"), 0))
+        assertEquals(false, cond(q, "webdl").matches(http("Movie 1080p WEBRip"), 0))
+        assertEquals(true, cond(q, "webrip").matches(http("Movie 1080p WEBRip"), 0))
+        assertEquals(true, cond(q, "remux").matches(http("Movie 2160p BluRay REMUX"), 0))
+        assertEquals(true, cond(q, "cam").matches(http("Movie HDCAM"), 0))
+        assertEquals(false, cond(q, "cam").matches(http("Movie Camera Obscura 1080p"), 0))
+    }
+
+    @Test
+    fun codecHdrAudioAndBitDepthTags() {
+        val name = "Show.S01E01.2160p.WEB-DL.DDP5.1.Atmos.DV.HDR10.HEVC.10bit"
+        assertEquals(true, cond(ProfileConditionType.Codec, "hevc").matches(http(name), 0))
+        assertEquals(false, cond(ProfileConditionType.Codec, "avc").matches(http(name), 0))
+        assertEquals(true, cond(ProfileConditionType.Hdr, "dv").matches(http(name), 0))
+        assertEquals(true, cond(ProfileConditionType.Hdr, "hdr").matches(http(name), 0))
+        assertEquals(false, cond(ProfileConditionType.Hdr, "hdr10plus").matches(http(name), 0))
+        assertEquals(false, cond(ProfileConditionType.Hdr, "sdr").matches(http(name), 0))
+        assertEquals(true, cond(ProfileConditionType.Hdr, "sdr").matches(http("Show 1080p WEB x264"), 0))
+        assertEquals(true, cond(ProfileConditionType.Audio, "ddplus").matches(http(name), 0))
+        assertEquals(false, cond(ProfileConditionType.Audio, "dd").matches(http(name), 0))
+        assertEquals(true, cond(ProfileConditionType.Audio, "atmos").matches(http(name), 0))
+        assertEquals(true, cond(ProfileConditionType.Audio, "dd").matches(http("Show 1080p DD5.1 x264"), 0))
+        assertEquals(true, cond(ProfileConditionType.Audio, "dtshd").matches(http("Movie DTS-HD MA 7.1"), 0))
+        assertEquals(true, cond(ProfileConditionType.BitDepth, "10bit").matches(http(name), 0))
+        assertEquals(true, cond(ProfileConditionType.Hdr, "hdr10plus").matches(http("Movie HDR10+ 2160p"), 0))
+        assertEquals(false, cond(ProfileConditionType.Hdr, "hdr").matches(http("Movie HDR10+ 2160p"), 0))
+    }
+
+    @Test
+    fun languageAndEdition() {
+        val lang = ProfileCondition(type = ProfileConditionType.Language, text = "multi, ita")
+        assertEquals(true, lang.matches(http("Movie 1080p MULTi WEB"), 0))
+        assertEquals(true, lang.matches(http("Movie 1080p ITA ENG"), 0))
+        assertEquals(false, lang.matches(http("Movie 1080p Italian Job"), 0))
+        assertEquals(true, cond(ProfileConditionType.Edition, "directors").matches(http("Movie Director's Cut 1080p"), 0))
+        assertEquals(true, cond(ProfileConditionType.Edition, "extended").matches(http("Movie.EXTENDED.1080p"), 0))
+    }
+
+    @Test
+    fun oldProfileJsonStillLoads() {
+        // A profile saved before the new condition fields existed.
+        val text = """{"id":"x","name":"Old","rules":[{"conditions":[{"type":"Resolution","resolution":1080}]}]}"""
+        val profile = kotlinx.serialization.json.Json { ignoreUnknownKeys = true }.decodeFromString<DownloadProfile>(text)
+        assertEquals("A 1080p", profile.pickStream(listOf(http("B 720p"), http("A 1080p")), 0)?.name)
+    }
 }
