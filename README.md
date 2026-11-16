@@ -8,20 +8,30 @@
     Bring your own sources. Nuvio turns them into a library with artwork, ratings, subtitles, and your place saved on every screen.
   </p>
 
-  [Website](https://nuvio.tv) · [GitHub releases](https://github.com/NuvioMedia/NuvioMobile/releases/latest) · [Support Nuvio](https://nuvio.tv/support)
+  [Website](https://nuvio.tv) · [GitHub releases](https://github.com/nathenlow/NuvioMobile/releases/latest) · [Support Nuvio](https://nuvio.tv/support)
 
 </div>
 
+## About this fork
+
+This is a fork of [NuvioMedia/NuvioMobile](https://github.com/NuvioMedia/NuvioMobile) that adds:
+
+- Bulk downloads: download a whole season or series, with a queue, pause, resume and cancel all, and reordering.
+- An offline library for finished downloads.
+- Downloads that keep running with the app closed, on Android and iOS, with a Live Activity on iOS.
+- Download settings: concurrent download limit, preferred resolution (cached first, then your resolution, then the addon ranking), and SD card or USB storage on Android.
+
+It follows upstream `cmp-rewrite` and is not affiliated with the Nuvio team.
+
 ## Get Nuvio Mobile
 
-- [Android on Google Play](https://play.google.com/store/apps/details?id=com.nuvio.app)
-- [Android APK](https://github.com/NuvioMedia/NuvioMobile/releases/latest)
-- iOS via AltStore or SideStore: add [this source URL](https://raw.githubusercontent.com/NuvioMedia/NuvioMobile/cmp-rewrite/store.json) in the app's Sources section, then install Nuvio.
+- [Android APK](https://github.com/nathenlow/NuvioMobile/releases/latest)
+- iOS via AltStore or SideStore: add [this source URL](https://raw.githubusercontent.com/nathenlow/NuvioMobile/cmp-rewrite/store.json) in the app's Sources section, then install Nuvio. Updates are published here as unsigned IPAs, so AltStore or SideStore signs them with your own Apple ID.
 
 ## Build from source
 
 ```bash
-git clone https://github.com/NuvioMedia/NuvioMobile.git
+git clone https://github.com/nathenlow/NuvioMobile.git
 cd NuvioMobile
 ```
 
