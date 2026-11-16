@@ -5,6 +5,7 @@ import platform.Foundation.NSUserDefaults
 
 internal actual object DownloadsStorage {
     private const val payloadKey = "downloads_payload"
+    private const val profilesKey = "download_profiles"
     private const val preferredResolutionKey = "preferred_download_resolution"
     private const val maxConcurrentKey = "max_concurrent_downloads"
     private const val fullEpisodeListKey = "save_full_episode_list"
@@ -46,6 +47,13 @@ internal actual object DownloadsStorage {
 
     actual fun savePreferredResolution(value: Int) {
         NSUserDefaults.standardUserDefaults.setInteger(value.toLong(), forKey = preferredResolutionKey)
+    }
+
+    actual fun loadProfilesPayload(): String? =
+        NSUserDefaults.standardUserDefaults.stringForKey(profilesKey)
+
+    actual fun saveProfilesPayload(payload: String) {
+        NSUserDefaults.standardUserDefaults.setObject(payload, forKey = profilesKey)
     }
 
     actual fun loadStorageVolumeId(): String? = null

@@ -9,6 +9,8 @@ internal expect object DownloadsStorage {
     fun saveSaveFullEpisodeList(value: Boolean)
     fun loadPreferredResolution(): Int?
     fun savePreferredResolution(value: Int)
+    fun loadProfilesPayload(): String?
+    fun saveProfilesPayload(payload: String)
     fun loadStorageVolumeId(): String?
     fun saveStorageVolumeId(value: String)
 }

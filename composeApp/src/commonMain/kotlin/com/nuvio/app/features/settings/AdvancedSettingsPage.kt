@@ -17,9 +17,11 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.features.downloads.DownloadStorageMigrationDialog
+import com.nuvio.app.features.downloads.DownloadProfilesRepository
+import com.nuvio.app.features.downloads.DownloadProfilesSheet
 import com.nuvio.app.features.downloads.DownloadStorageSheet
+import com.nuvio.app.features.downloads.rememberDownloadProfileNames
 import com.nuvio.app.features.downloads.DownloadsRepository
-import com.nuvio.app.features.downloads.PREFERRED_RESOLUTION_CHOICES
 import com.nuvio.app.features.downloads.downloadStorageName
 import com.nuvio.app.features.downloads.formatStorageBytes
 import com.nuvio.app.features.downloads.MAX_CONCURRENT_DOWNLOADS
@@ -50,14 +52,11 @@ import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.downloads_concurrent_description
+import nuvio.composeapp.generated.resources.downloads_profile_title
 import nuvio.composeapp.generated.resources.downloads_storage_free
 import nuvio.composeapp.generated.resources.downloads_storage_title
 import nuvio.composeapp.generated.resources.downloads_verify_unavailable
 import nuvio.composeapp.generated.resources.downloads_concurrent_title
-import nuvio.composeapp.generated.resources.downloads_resolution_auto
-import nuvio.composeapp.generated.resources.downloads_resolution_description
-import nuvio.composeapp.generated.resources.downloads_resolution_title
-import nuvio.composeapp.generated.resources.downloads_resolution_value
 import nuvio.composeapp.generated.resources.downloads_full_episode_list_description
 import nuvio.composeapp.generated.resources.downloads_full_episode_list_title
 import nuvio.composeapp.generated.resources.downloads_verify_action
@@ -194,14 +193,19 @@ private fun DownloadSettingsSection(isTablet: Boolean) {
         DownloadsRepository.maxConcurrentDownloads
     }.collectAsStateWithLifecycle()
     val saveFullEpisodeList by DownloadsRepository.saveFullEpisodeList.collectAsStateWithLifecycle()
-    val preferredResolution by DownloadsRepository.preferredResolution.collectAsStateWithLifecycle()
     val scope = rememberCoroutineScope()
     var verifying by remember { mutableStateOf(false) }
     var showStorageSheet by remember { mutableStateOf(false) }
+    var showProfileSheet by remember { mutableStateOf(false) }
+    rememberDownloadProfileNames()
+    val profiles by DownloadProfilesRepository.profiles.collectAsStateWithLifecycle()
+    val activeProfileId by DownloadProfilesRepository.activeId.collectAsStateWithLifecycle()
+    val activeProfileName = profiles.firstOrNull { it.id == activeProfileId }?.name.orEmpty()
     // Read again each time the sheet closes, as an SD card may have been connected or removed.
     val storageVolumes = remember(showStorageSheet) { DownloadsRepository.storageVolumes() }
     DownloadStorageMigrationDialog()
     if (showStorageSheet) DownloadStorageSheet(onDismiss = { showStorageSheet = false })
+    if (showProfileSheet) DownloadProfilesSheet(onDismiss = { showProfileSheet = false })
 
     SettingsSection(
         title = stringResource(Res.string.settings_advanced_section_downloads),
@@ -269,19 +273,11 @@ private fun DownloadSettingsSection(isTablet: Boolean) {
                 )
             }
             SettingsGroupDivider(isTablet = isTablet)
-            // Taps step through the choices: addon ranking only, 4K, 1080p, 720p, 480p.
             SettingsNavigationRow(
-                title = stringResource(Res.string.downloads_resolution_title),
-                description = (
-                    if (preferredResolution == 0) stringResource(Res.string.downloads_resolution_auto)
-                    else stringResource(Res.string.downloads_resolution_value, preferredResolution)
-                    ) + "\n" + stringResource(Res.string.downloads_resolution_description),
+                title = stringResource(Res.string.downloads_profile_title),
+                description = activeProfileName,
                 isTablet = isTablet,
-                onClick = {
-                    val choices = PREFERRED_RESOLUTION_CHOICES
-                    val next = choices[(choices.indexOf(preferredResolution) + 1) % choices.size]
-                    DownloadsRepository.setPreferredResolution(next)
-                },
+                onClick = { showProfileSheet = true },
             )
             SettingsGroupDivider(isTablet = isTablet)
             SettingsSwitchRow(

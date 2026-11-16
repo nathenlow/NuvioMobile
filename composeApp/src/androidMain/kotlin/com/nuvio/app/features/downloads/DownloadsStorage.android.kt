@@ -8,6 +8,7 @@ internal actual object DownloadsStorage {
     private const val preferencesName = "nuvio_downloads"
     private const val payloadKey = "downloads_payload"
     private const val preferredResolutionKey = "preferred_download_resolution"
+    private const val profilesKey = "download_profiles"
     private const val maxConcurrentKey = "max_concurrent_downloads"
     private const val fullEpisodeListKey = "save_full_episode_list"
     private const val storageVolumeKey = "download_storage_volume"
@@ -44,6 +45,13 @@ internal actual object DownloadsStorage {
 
     actual fun saveStorageVolumeId(value: String) {
         preferences?.edit()?.putString(storageVolumeKey, value)?.apply()
+    }
+
+    // Device-wide, like the other download settings.
+    actual fun loadProfilesPayload(): String? = preferences?.getString(profilesKey, null)
+
+    actual fun saveProfilesPayload(payload: String) {
+        preferences?.edit()?.putString(profilesKey, payload)?.apply()
     }
 
     actual fun loadPreferredResolution(): Int? =

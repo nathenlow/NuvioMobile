@@ -269,12 +269,14 @@ internal fun AddonStreamGroup.downloadableStreams(): List<StreamItem> =
  * play setting still gets a pick here, since the user can switch it afterwards.
  */
 internal fun autoSelect(groups: List<AddonStreamGroup>): StreamItem? {
-    val candidates = groups.flatMap { it.downloadableStreams() }
-    if (candidates.isEmpty()) return null
-
-    // A cached stream at the preferred resolution wins; without one, the addon ranking below decides.
     DownloadsRepository.ensureLoaded()
-    pickPreferredResolution(candidates, DownloadsRepository.preferredResolution.value)?.let { return it }
+    val profile = DownloadProfilesRepository.active()
+    val preferredHeight = DownloadsRepository.preferredResolution.value
+    // The profile drops what it excludes, then its first matching rule picks. When no rule matches,
+    // the addon ranking below decides among what is left.
+    val candidates = profile.applyExclusions(groups.flatMap { it.downloadableStreams() }, preferredHeight)
+    if (candidates.isEmpty()) return null
+    profile.pickStream(candidates, preferredHeight)?.let { return it }
 
     PlayerSettingsRepository.ensureLoaded()
     val settings = PlayerSettingsRepository.uiState.value
