@@ -4,6 +4,7 @@ import kotlinx.cinterop.ExperimentalForeignApi
 import platform.Foundation.NSFileManager
 import platform.Foundation.NSHomeDirectory
 import platform.Foundation.NSURL
+import platform.Foundation.NSURLIsExcludedFromBackupKey
 import platform.UIKit.UIApplication
 
 /** Called by the app delegate when the system wakes the app for finished background downloads. */
@@ -123,7 +124,23 @@ internal fun downloadsDirectoryPath(): String {
         attributes = null,
         error = null,
     )
+    excludeFromBackupOnce(path)
     return path
+}
+
+private var downloadsExcludedFromBackup = false
+
+/**
+ * Downloads can be many GB and can be downloaded again, so they must not be part of iCloud or
+ * computer backups. The flag is set on the folder and covers everything inside it, files that
+ * were downloaded before this change included.
+ */
+@OptIn(ExperimentalForeignApi::class)
+private fun excludeFromBackupOnce(path: String) {
+    if (downloadsExcludedFromBackup) return
+    val excluded = NSURL.fileURLWithPath(path)
+        .setResourceValue(true, forKey = NSURLIsExcludedFromBackupKey, error = null)
+    if (excluded) downloadsExcludedFromBackup = true
 }
 
 @OptIn(ExperimentalForeignApi::class)
