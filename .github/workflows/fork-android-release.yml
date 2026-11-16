@@ -318,3 +318,17 @@ jobs:
             args+=(--draft)
           fi
           gh release create "${args[@]}" "${files[@]}"
+
+  store:
+    name: Update the sideload source
+    # store.json (the AltStore / SideStore source) lists the IPA of the release, so it only runs when
+    # the release is public and carries an IPA. After a release made with the iOS job off, upload the
+    # IPA yourself and run "Update Sideload Source" by hand with the tag.
+    if: ${{ !cancelled() && needs.release.result == 'success' && (github.event_name == 'push' || inputs.ios) && !inputs.draft && !inputs.prerelease && !contains(needs.prepare.outputs.version, '-') }}
+    needs: [prepare, release]
+    permissions:
+      contents: write
+    uses: ./.github/workflows/update-store-source.yml
+    with:
+      tag: ${{ needs.prepare.outputs.tag }}
+      version: ${{ needs.prepare.outputs.version }}
