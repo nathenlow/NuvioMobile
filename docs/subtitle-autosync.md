@@ -32,8 +32,11 @@ corrects a constant delay, a frame-rate stretch, and later jumps in the timing.
   connections it also reads four short stretches of the stream ahead of playback so a
   result can arrive earlier. It waits for an unmetered connection and never samples on
   mobile data.
-- **Feedback:** one toast when the audio takes over, then the **Auto synced** chip once
-  a mapping is confirmed. Failures to sync stay silent.
+- **Feedback:** no toast. While the audio is working, the selected subtitle's card in the
+  subtitle panel shows a **Syncing to audio…** chip with a small spinner; once a mapping is
+  confirmed it becomes the **Auto synced** chip. If an early estimate is withdrawn, the card goes
+  back to **Syncing to audio…**. Failures to sync stay silent. The chip is only visible while
+  the subtitle panel is open.
 - **Setting the delay by hand** keeps the timing applied so far and stops adjusting.
 - **Remembered:** a confirmed mapping is saved for that stream and subtitle. Streams
   whose URL changes each session will not find it again.
@@ -91,8 +94,8 @@ Physical-device checks still required:
    With **Match the Audio** off, verify a simple failure toast and the original timing.
 6. Audio fallback, with **Match the Audio** on:
    - Pick an offset add-on subtitle for a video without embedded subtitles, with
-     non-English audio. Verify the "syncing to the audio" toast, then the chip, and
-     that the dialogue lines up.
+     non-English audio. Open the subtitle panel and verify the card shows "Syncing to audio…",
+     then "Auto synced", and that the dialogue lines up.
    - Repeat with a frame-rate-stretched subtitle, and seek far ahead and back.
    - Verify a dolby or DTS track either syncs or degrades without a crash.
    - On mobile data, verify no sampling download happens.

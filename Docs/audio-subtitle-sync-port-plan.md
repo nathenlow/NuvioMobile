@@ -164,7 +164,7 @@ Behaviour decisions made while splitting:
 | Decision | Proposal | Why |
 |---|---|---|
 | Feedback on success | "Auto synced" chip only | Matches the current "only failures show toasts" rule. |
-| Feedback while working | One short toast at takeover ("Syncing to the audio…"). | Analysis can take a while, and silence looks broken. |
+| Feedback while working | A "Syncing to audio…" chip with a spinner on the selected subtitle card, replaced by "Auto synced" when confirmed. No toast. | Analysis can take a while, and silence looks broken. A toast was tried first and dropped. The chip is only visible while the subtitle panel is open. |
 | Spot sampling on mobile data | Off; waits for an unmetered network. No setting. | Avoids a surprise download. Look-ahead from already-demuxed audio costs no extra data. |
 | Setting default | On, but only reached when AutoSync is on | The fallback only runs after AutoSync keeps the original timing. |
 | Remembered mappings | Keep (per stream and subtitle) | Replays instantly on resume or the next session. |

@@ -110,6 +110,7 @@ internal class AudioSyncFallback(
             if (generation == null || cues.isEmpty()) return@launch disarm()
             target.set(Target(url, cues, generation))
             appliedModel = null
+            AutoSyncSyncedSubtitle.markSyncing(url)
             startTicker()
             AudioSyncLog.i("AutoSync kept the original timing; syncing the subtitle to the audio")
             engine.startSession(url, cues)
@@ -196,7 +197,8 @@ internal class AudioSyncFallback(
         when (status) {
             is AudioSyncStatus.Synced, is AudioSyncStatus.Adjusted ->
                 target.get()?.let { AutoSyncSyncedSubtitle.mark(it.url) }
-            AudioSyncStatus.Withdrawn -> AutoSyncSyncedSubtitle.clear()
+            // The early estimate was dropped: back to searching, so the card says so again.
+            AudioSyncStatus.Withdrawn -> target.get()?.let { AutoSyncSyncedSubtitle.markSyncing(it.url) }
             else -> Unit
         }
         onStatus(status)

@@ -8,6 +8,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Sync
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -24,31 +25,57 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.autosync_label_synced
+import nuvio.composeapp.generated.resources.autosync_label_syncing_audio
 import org.jetbrains.compose.resources.stringResource
 
 /**
- * The add-on subtitle whose on-screen timing AutoSync corrected or confirmed.
- * Cleared whenever the sidecar starts or stops a subtitle, since that renders the original timing.
+ * What AutoSync is doing to the add-on subtitle on screen: [url] is the subtitle whose timing it
+ * corrected or confirmed, [syncingUrl] one the audio fallback is still lining up with the speech.
+ * Both are cleared whenever the sidecar starts or stops a subtitle, since that renders the original
+ * timing.
  */
 internal object AutoSyncSyncedSubtitle {
     private val _url = MutableStateFlow<String?>(null)
     val url: StateFlow<String?> = _url.asStateFlow()
 
+    private val _syncingUrl = MutableStateFlow<String?>(null)
+    val syncingUrl: StateFlow<String?> = _syncingUrl.asStateFlow()
+
+    /** [subtitleUrl]'s timing was corrected or confirmed. */
     fun mark(subtitleUrl: String) {
         _url.value = subtitleUrl
+        _syncingUrl.value = null
+    }
+
+    /** [subtitleUrl] is still being lined up with the audio, so its timing is not confirmed yet. */
+    fun markSyncing(subtitleUrl: String) {
+        _syncingUrl.value = subtitleUrl
+        _url.value = null
     }
 
     fun clear() {
         _url.value = null
+        _syncingUrl.value = null
     }
 }
 
-/** "Auto synced" chip for the selected add-on subtitle in the subtitle panel; empty otherwise. */
+/**
+ * Chip for the selected add-on subtitle in the subtitle panel: "Auto synced" once its timing is
+ * confirmed, "Syncing to audio…" while the audio fallback is still working; empty otherwise.
+ */
 @Composable
 internal fun AutoSyncedChip(subtitleUrl: String, selected: Boolean) {
     val syncedUrl by AutoSyncSyncedSubtitle.url.collectAsState()
-    if (!selected || syncedUrl != subtitleUrl) return
+    val syncingUrl by AutoSyncSyncedSubtitle.syncingUrl.collectAsState()
+    if (!selected) return
+    when (subtitleUrl) {
+        syncedUrl -> AutoSyncStateChip(stringResource(Res.string.autosync_label_synced), syncing = false)
+        syncingUrl -> AutoSyncStateChip(stringResource(Res.string.autosync_label_syncing_audio), syncing = true)
+    }
+}
 
+@Composable
+private fun AutoSyncStateChip(label: String, syncing: Boolean) {
     val tokens = MaterialTheme.nuvio
     val contentColor = tokens.colors.onAccent.copy(alpha = 0.9f)
     val shape = RoundedCornerShape(999.dp)
@@ -60,14 +87,22 @@ internal fun AutoSyncedChip(subtitleUrl: String, selected: Boolean) {
         horizontalArrangement = Arrangement.spacedBy(4.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
-        Icon(
-            imageVector = Icons.Rounded.Sync,
-            contentDescription = null,
-            tint = contentColor,
-            modifier = Modifier.size(12.dp),
-        )
+        if (syncing) {
+            CircularProgressIndicator(
+                modifier = Modifier.size(12.dp),
+                color = contentColor,
+                strokeWidth = 1.5.dp,
+            )
+        } else {
+            Icon(
+                imageVector = Icons.Rounded.Sync,
+                contentDescription = null,
+                tint = contentColor,
+                modifier = Modifier.size(12.dp),
+            )
+        }
         Text(
-            text = stringResource(Res.string.autosync_label_synced),
+            text = label,
             color = contentColor,
             style = MaterialTheme.typography.labelSmall,
             maxLines = 1,

@@ -2,5 +2,5 @@
 <resources>
     <string name="autosync_toast_no_fit">Sync failed: these subtitles don’t match this version of the video.</string>
     <string name="autosync_label_synced">Auto synced</string>
-    <string name="autosync_toast_audio_fallback">No subtitle timing to match in the video. Syncing to the audio instead…</string>
+    <string name="autosync_label_syncing_audio">Syncing to audio…</string>
 </resources>

@@ -23,7 +23,6 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import nuvio.composeapp.generated.resources.Res
-import nuvio.composeapp.generated.resources.autosync_toast_audio_fallback
 import nuvio.composeapp.generated.resources.autosync_toast_no_fit
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.getString
@@ -206,13 +205,13 @@ internal class AutoSyncPlayerCoordinator(
                 if (token != operationToken) return@launch
                 if (resolved == null) {
                     restoreOriginalIfRelevant()
-                    // The original timing is kept, and nothing says it is right: try the audio.
-                    if (
-                        shouldSyncToAudio(outcome, sidecarStillShowsSubtitle = sidecar.activeSidecarSubtitleKey == url) &&
-                        audioFallback.takeOver(url)
-                    ) {
-                        showToast(token, Res.string.autosync_toast_audio_fallback)
-                    } else {
+                    // The original timing is kept, and nothing says it is right: try the audio. The
+                    // subtitle card shows "Syncing to audio" while it works, so no toast is needed.
+                    val audioTakesOver = shouldSyncToAudio(
+                        outcome,
+                        sidecarStillShowsSubtitle = sidecar.activeSidecarSubtitleKey == url,
+                    ) && audioFallback.takeOver(url)
+                    if (!audioTakesOver) {
                         audioFallback.disarm()
                         showNoFit(token, outcome)
                     }
