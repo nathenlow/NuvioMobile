@@ -1,5 +1,7 @@
 package com.nuvio.app.features.player
 
+import com.nuvio.app.features.autosync.AutoSyncSubtitleHttp
+import com.nuvio.app.features.autosync.isLocalFileUrl
 import com.nuvio.app.core.i18n.localizedNoSubtitleLinesFound
 import com.nuvio.app.core.i18n.localizedSubtitleLinesLoadError
 import com.nuvio.app.features.addons.httpGetTextWithHeaders
@@ -68,18 +70,26 @@ internal fun PlayerScreenRuntime.setSubtitleDelay(delayMs: Int) {
     playerController?.setSubtitleDelayMs(clamped)
 }
 
+private const val MAX_LOCAL_SUBTITLE_BYTES = 5 * 1024 * 1024
+
 internal fun PlayerScreenRuntime.loadSubtitleAutoSyncCues(force: Boolean = false) {
     val subtitle = selectedAddonSubtitle ?: return
     if (!force && subtitleAutoSyncState.cues.isNotEmpty()) return
+    // A downloaded subtitle is a file on the device: it reads offline, and a request for it would fail.
+    val isLocalFile = isLocalFileUrl(subtitle.url)
     // Offline: the cue download would only hang, so skip it and leave the state as is.
-    if (isNetworkOffline()) return
+    if (!isLocalFile && isNetworkOffline()) return
     subtitleAutoSyncState = subtitleAutoSyncState.copy(isLoading = true, errorMessage = null)
     scope.launch {
         val result = runCatching {
-            val body = httpGetTextWithHeaders(
-                url = subtitle.url,
-                headers = sanitizePlaybackHeaders(activeSourceHeaders),
-            )
+            val body = if (isLocalFile) {
+                AutoSyncSubtitleHttp.get(subtitle.url, emptyMap(), MAX_LOCAL_SUBTITLE_BYTES).body
+            } else {
+                httpGetTextWithHeaders(
+                    url = subtitle.url,
+                    headers = sanitizePlaybackHeaders(activeSourceHeaders),
+                )
+            }
             PlayerSubtitleCueParser.parse(body, subtitle.url)
         }
         result.fold(
