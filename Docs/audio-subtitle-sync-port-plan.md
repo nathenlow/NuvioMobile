@@ -108,7 +108,7 @@ they run as host tests.
 | `AudioSyncFallback` | Thin orchestrator for one stream: `arm`, `disarm`, `takeOver`, `stop`, `release`; applies each new model to the sidecar through `commitPreparedSidecarSubtitle`. | `AudioSyncFallback.kt`, minus candidate and content plumbing |
 | `AudioSyncTaps` | Registry the player builds look up (extractors and audio sink are created before the fallback). | `AudioSyncFallback.kt` bottom |
 | `AudioSyncStatus` | Sealed status type, without the model-download cases. | controller bottom |
-| `AudioSyncLog` | Thin wrapper over `android.util.Log`. Replaces `SyncLog`; no file logging or sharing. | `SyncLog.kt` |
+| `AudioSyncLog` (done, phase 2) | Thin wrapper over `android.util.Log`. Replaces `SyncLog`; no file logging or sharing. | `SyncLog.kt` |
 
 Dropped from the controller with no replacement: the fetch pool, reference parsing, candidate and
 `switchedAway` tracking, `Handover`, recogniser loading and `onAsrLock`, `bridgeReferences`,
@@ -167,20 +167,25 @@ estimate, not a measured figure.
 
 ## 8. Risks and open questions
 
-- **FFmpeg coverage.** The look-ahead path for AC-3/E-AC-3/DTS depends on the vendored FFmpeg build.
-  If a codec is missing, the design falls back to the playback-PCM tap ("live-only"), which only hears
-  audio as it plays. Check which codecs the AAR supports on a real file. No JDK is installed here,
-  so I could not inspect the class signatures yet. Confirm that `FfmpegAudioDecoder`'s constructor
-  matches the fork's shim call.
-- **Extractor wrapper chaining.** `AutoSyncExtractorsFactory` and the new tap both wrap
-  `ExtractorsFactory`. Order matters for libass handling. Needs testing with AutoSync on and off.
-- **Fork tests may reference ASR.** `AudioSubtitleSyncTest` and `SpotSamplingTest` were not read; they
-  may need trimming. `AsrMatchingTest` and `SubtitleCandidatePoolTest` are dropped.
+- **FFmpeg coverage (checked in phase 2).** The vendored build, on arm64-v8a and armeabi-v7a,
+  contains decoders for AAC, AC-3, E-AC-3, DTS, TrueHD/MLP, MP3, Opus, Vorbis, FLAC and ALAC, and
+  `FfmpegAudioDecoder`'s constructor matches the fork's shim (read from the AAR with `javap`; the shim
+  compiles). Not yet confirmed: that the library loads and decodes on a real device. x86 builds were
+  not part of the decoder list I read. Formats with neither a usable MediaCodec nor FFmpeg still
+  degrade to the playback-PCM tap, which only hears audio as it plays.
+- **Extractor wrapper chaining (partly settled in phase 2).** The tap implements the repo's
+  `RewrappableExtractor`, the same contract `AutoSyncExtractorsFactory` uses, so the libass swap can
+  still reach the innermost extractor. The real wrapping order and behaviour still need a device
+  check with AutoSync on and off.
+- **Fork tests (resolved in phases 1 and 2).** `AudioSubtitleSyncTest` and `SpotSamplingTest` had no
+  ASR references and are ported, split by unit. `AsrMatchingTest` and `SubtitleCandidatePoolTest`
+  are dropped.
 - **Accuracy on real content is unproven.** VAD matches speech rhythm, so loud music, songs and heavy
   sound effects can hurt it, and translated subtitles merge, split or drop lines. Judge it on actual
   K-drama and anime episodes before calling it done.
-- **Fork code was read selectively.** Files other than the controller, fallback and coordinator were
-  read by outline only. Phase 1 starts with a full read of each file before it is copied.
+- **Fork code was read selectively.** Every file in phases 1 and 2 was read in full before it was
+  copied. Phase 3 rewrites the controller, so it starts with a full read of the controller and the
+  fallback.
 - **Silero licence.** MIT, Silero Team. Add the notice next to the existing entries in
   `androidMain/assets/licenses` (present in the fork; confirm the folder exists here).
 

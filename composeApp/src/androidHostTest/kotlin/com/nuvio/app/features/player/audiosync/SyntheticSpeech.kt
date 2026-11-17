@@ -16,11 +16,18 @@ internal object SyntheticSpeech {
     fun sileroWeights(): SileroVadWeights =
         File("src/androidMain/res/raw/silero_vad_v5_16k.bin").inputStream().use(SileroVadWeights::read)
 
-    /** Dialogue-like cues: 0.8-4.5 s lines separated by 0.2-9 s gaps. */
-    fun cues(random: Random, durationMs: Long): List<TestCue> {
+    /** Speech exactly where the subtitle says: no shift, no frame-rate change. */
+    val IDENTITY = SubtitleSyncSegment(0L, 1.0, 0.0)
+
+    /** Dialogue-like cues for a film of [durationMs], starting 5-25 s in. */
+    fun cues(random: Random, durationMs: Long): List<TestCue> =
+        cues(random, fromMs = 5_000L + random.nextLong(20_000L), toMs = durationMs)
+
+    /** Dialogue-like cues from [fromMs] until [toMs]: 0.8-4.5 s lines separated by 0.2-9 s gaps. */
+    fun cues(random: Random, fromMs: Long, toMs: Long): List<TestCue> {
         val cues = mutableListOf<TestCue>()
-        var t = 5_000L + random.nextLong(20_000L)
-        while (t < durationMs) {
+        var t = fromMs
+        while (t < toMs) {
             val length = 800L + random.nextLong(3_700L)
             cues += Triple(t, t + length, "line ${cues.size}")
             t += length + 200L + random.nextLong(if (random.nextInt(5) == 0) 9_000L else 2_500L)
