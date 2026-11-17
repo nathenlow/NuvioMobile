@@ -20,6 +20,9 @@ This is a fork of [NuvioMedia/NuvioMobile](https://github.com/NuvioMedia/NuvioMo
 - An offline library for finished downloads.
 - Downloads that keep running with the app closed, on Android and iOS, with a Live Activity on iOS.
 - Download settings: concurrent download limit, preferred resolution (cached first, then your resolution, then the addon ranking), and SD card or USB storage on Android.
+- Download profiles: pick which stream bulk download chooses with ordered rules and exclusions on cached state, source, resolution, size, addon, quality, codec, HDR, audio, language and edition. Includes built-in profiles, duplicate, import and export.
+- A labelled action row on the details page: Library, Watched, Download, Shuffle and Sources.
+- Audio subtitle sync: when subtitle auto sync finds no match, it listens to the stream's audio, finds the dialogue and aligns the subtitles to it. Progress shows on the subtitle card.
 
 It follows upstream `cmp-rewrite` and is not affiliated with the Nuvio team.
 
