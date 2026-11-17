@@ -58,7 +58,13 @@ internal object DownloadSubtitles {
                 val fileName = "${nextFileIndex++}.$extension"
                 try {
                     storage.write(fileName, body)
-                    saved += DownloadedSubtitle(subtitle.url, fileName, subtitle.language, subtitle.name)
+                    saved += DownloadedSubtitle(
+                        sourceUrl = subtitle.url,
+                        fileName = fileName,
+                        language = subtitle.language,
+                        name = subtitle.name,
+                        fromAddon = item.sourceSubtitles.none { it.url == subtitle.url },
+                    )
                     storage.write("manifest.json", json.encodeToString(SubtitleManifest(tracks = saved.toList())))
                 } catch (error: Exception) {
                     if (error is CancellationException) throw error
@@ -77,7 +83,7 @@ internal object DownloadSubtitles {
         val storage = DownloadSubtitleStorage(localVideoUri)
         return readManifest(storage).tracks.mapNotNull { track ->
             val uri = storage.localFileUri(track.fileName) ?: return@mapNotNull null
-            StreamSubtitle(url = uri, language = track.language, name = track.name)
+            StreamSubtitle(url = uri, language = track.language, name = track.name, fromAddon = track.fromAddon)
         }
     }
 
@@ -99,6 +105,8 @@ private data class DownloadedSubtitle(
     val fileName: String,
     val language: String,
     val name: String? = null,
+    /** Fetched from an add-on, not supplied by the stream. Downloads saved before this was recorded count as add-on. */
+    val fromAddon: Boolean = true,
 )
 
 internal expect class DownloadSubtitleStorage(localVideoUri: String) {

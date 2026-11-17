@@ -231,7 +231,8 @@ internal fun PlayerScreenRuntime.RenderPlayerRuntimeUi(
                     sourceAudioUrl = activeSourceAudioUrl,
                     sourceHeaders = activeSourceHeaders,
                     sourceResponseHeaders = activeSourceResponseHeaders,
-                    externalSubtitles = externalSubtitles,
+                    // Saved add-on subtitles are listed with the add-ons', not loaded again as player tracks.
+                    externalSubtitles = externalSubtitles.filterNot { it.fromAddon && it.url.isLocalSubtitleUri() },
                     streamType = activeStreamType,
                     modifier = videoModifier,
                     playWhenReady = shouldPlay,

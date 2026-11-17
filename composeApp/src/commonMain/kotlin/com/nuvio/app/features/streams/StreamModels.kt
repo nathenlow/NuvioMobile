@@ -9,7 +9,13 @@ data class StreamSubtitle(
     val url: String,
     val language: String,
     val name: String? = null,
-    val headers: Map<String, String>? = null
+    val headers: Map<String, String>? = null,
+    /**
+     * A subtitle saved with a download that came from an add-on rather than from the stream itself. The
+     * player lists it with the add-ons' subtitles, so AutoSync can line it up; the stream's own stay
+     * ordinary tracks.
+     */
+    val fromAddon: Boolean = false,
 )
 
 data class StreamItem(

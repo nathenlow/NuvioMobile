@@ -25,7 +25,9 @@ internal fun mergeStreamAndAddonSubtitles(
     addonSubtitles: List<AddonSubtitle>,
     streamSubtitles: List<StreamSubtitle>,
 ): List<AddonSubtitle> {
-    val remoteStreamSubtitles = streamSubtitles.filterNot { it.url.isLocalSubtitleUri() }
+    // A download's own subtitle files are player tracks, but the ones it saved from add-ons are listed
+    // with the add-ons', so choosing one lets AutoSync line it up.
+    val remoteStreamSubtitles = streamSubtitles.filter { !it.url.isLocalSubtitleUri() || it.fromAddon }
     if (remoteStreamSubtitles.isEmpty()) return addonSubtitles
     return (remoteStreamSubtitles.map { it.toAddonSubtitle() } + addonSubtitles)
         .distinctBy { "${it.id}|${it.url}" }

@@ -49,4 +49,16 @@ class PlayerStartupSubtitlesTest {
             merged.map { it.url },
         )
     }
+
+    @Test
+    fun savedAddonSubtitlesAreListedWithAddonsAndTheStreamsOwnStayTracks() {
+        val merged = mergeStreamAndAddonSubtitles(
+            addonSubtitles = emptyList(),
+            streamSubtitles = listOf(
+                StreamSubtitle(url = "file:///d/0.srt", language = "en", name = "English (Addon)", fromAddon = true),
+                StreamSubtitle(url = "file:///d/1.srt", language = "en", name = "English (Stream)", fromAddon = false),
+            ),
+        )
+        assertEquals(listOf("file:///d/0.srt"), merged.map { it.url })
+    }
 }
