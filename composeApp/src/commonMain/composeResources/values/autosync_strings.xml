@@ -10,4 +10,6 @@
     <string name="settings_playback_auto_sync_tolerance_description">Keep the original subtitle timing when the sync would move it by no more than this. Tap to change.</string>
     <string name="settings_playback_auto_sync_tolerance_off">Off</string>
     <string name="settings_playback_auto_sync_tolerance_value">%1$d ms</string>
+    <string name="settings_playback_auto_sync_audio_fallback">Auto Sync: Match the Audio</string>
+    <string name="settings_playback_auto_sync_audio_fallback_description">When the video has no subtitle timing to compare with, line the subtitle up with the speech in the audio instead. Works in any language. On unmetered connections it also reads a few short parts of the stream ahead of playback.</string>
 </resources>

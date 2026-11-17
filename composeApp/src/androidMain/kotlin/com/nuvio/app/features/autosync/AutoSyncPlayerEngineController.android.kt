@@ -5,9 +5,11 @@ import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.platform.LocalContext
+import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.ExoPlayer
 import com.nuvio.app.features.player.PlayerEngineController
 import com.nuvio.app.features.player.SidecarSubtitleController
+import com.nuvio.app.features.player.audiosync.AudioSyncFallback
 import com.nuvio.app.features.streams.StreamSubtitle
 import kotlinx.coroutines.CoroutineScope
 
@@ -22,6 +24,8 @@ internal fun rememberAutoSyncCoordinator(
     sidecar: SidecarSubtitleController,
     playerSourceKey: Any,
     sourceUrl: String,
+    sourceAudioUrl: String?,
+    dataSourceFactory: DataSource.Factory,
     sourceHeaders: Map<String, String>,
     externalSubtitles: List<StreamSubtitle>,
     useLibass: Boolean,
@@ -34,11 +38,22 @@ internal fun rememberAutoSyncCoordinator(
     val latestUseLibass = rememberUpdatedState(useLibass)
     val latestPreferredLanguage = rememberUpdatedState(preferredSubtitleLanguage)
     val coordinator = remember(playerSourceKey, player, sidecar, scope) {
+        AutoSyncPreferencesRepository.ensureLoaded()
         AutoSyncPlayerCoordinator(
             context = context,
             scope = scope,
             player = player,
             sidecar = sidecar,
+            audioFallback = AudioSyncFallback.create(
+                context = context,
+                scope = scope,
+                player = player,
+                sidecar = sidecar,
+                sourceUrl = sourceUrl,
+                sourceAudioUrl = sourceAudioUrl,
+                dataSourceFactory = dataSourceFactory,
+                enabled = AutoSyncPreferencesRepository.audioSyncFallbackEnabled,
+            ),
             sourceUrl = sourceUrl,
             sourceHeaders = sourceHeaders,
             getSubtitleHeaders = { subtitleUrl ->
@@ -118,7 +133,7 @@ internal class AutoSyncPlayerEngineController(
     }
 
     override fun cancelForManualSubtitleDelay() {
-        coordinator.cancel()
+        coordinator.cancelForManualDelay()
         AutoSyncSyncedSubtitle.clear()
     }
 }

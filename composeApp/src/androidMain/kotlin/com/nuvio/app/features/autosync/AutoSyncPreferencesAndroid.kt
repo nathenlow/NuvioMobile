@@ -9,6 +9,7 @@ internal object AutoSyncPreferencesAndroid {
         "preferred_subtitle_auto_sync_on_start"
     private const val aggressiveModeKey = "auto_sync_aggressive_mode"
     private const val syncToleranceMsKey = "auto_sync_tolerance_ms"
+    private const val audioSyncFallbackKey = "auto_sync_audio_fallback"
 
     fun initialize(context: Context) {
         val preferences = context.getSharedPreferences(preferencesName, Context.MODE_PRIVATE)
@@ -49,6 +50,18 @@ internal object AutoSyncPreferencesAndroid {
                 preferences
                     .edit()
                     .putInt(ProfileScopedKey.of(syncToleranceMsKey), toleranceMs)
+                    .apply()
+            },
+        )
+        AutoSyncPreferencesRepository.installAudioSyncFallbackPersistence(
+            load = {
+                val key = ProfileScopedKey.of(audioSyncFallbackKey)
+                if (preferences.contains(key)) preferences.getBoolean(key, true) else null
+            },
+            save = { enabled ->
+                preferences
+                    .edit()
+                    .putBoolean(ProfileScopedKey.of(audioSyncFallbackKey), enabled)
                     .apply()
             },
         )

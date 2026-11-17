@@ -6,6 +6,8 @@ import androidx.compose.runtime.remember
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.autosync.AutoSyncPreferencesRepository
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.settings_playback_auto_sync_audio_fallback
+import nuvio.composeapp.generated.resources.settings_playback_auto_sync_audio_fallback_description
 import nuvio.composeapp.generated.resources.settings_playback_auto_sync_mode_aggressive
 import nuvio.composeapp.generated.resources.settings_playback_auto_sync_mode_aggressive_description
 import nuvio.composeapp.generated.resources.settings_playback_auto_sync_mode_passive
@@ -34,6 +36,10 @@ internal fun AutoSyncPlaybackSettingsRows(
     val syncToleranceMs by remember {
         AutoSyncPreferencesRepository.ensureLoaded()
         AutoSyncPreferencesRepository.syncToleranceMs
+    }.collectAsStateWithLifecycle()
+    val audioSyncFallback by remember {
+        AutoSyncPreferencesRepository.ensureLoaded()
+        AutoSyncPreferencesRepository.audioSyncFallbackEnabled
     }.collectAsStateWithLifecycle()
 
     SettingsSwitchRow(
@@ -88,5 +94,15 @@ internal fun AutoSyncPlaybackSettingsRows(
             val next = options[(options.indexOf(syncToleranceMs) + 1) % options.size]
             AutoSyncPreferencesRepository.setSyncToleranceMs(next)
         },
+    )
+    if (!AutoSyncPreferencesRepository.audioSyncFallbackSupported) return
+    SettingsGroupDivider(isTablet = isTablet)
+    SettingsSwitchRow(
+        title = stringResource(Res.string.settings_playback_auto_sync_audio_fallback),
+        description = stringResource(Res.string.settings_playback_auto_sync_audio_fallback_description),
+        checked = audioSyncFallback,
+        enabled = enabled,
+        isTablet = isTablet,
+        onCheckedChange = AutoSyncPreferencesRepository::setAudioSyncFallbackEnabled,
     )
 }

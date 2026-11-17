@@ -25,11 +25,23 @@ internal object AutoSyncPreferencesRepository {
     private val _syncToleranceMs = MutableStateFlow(0)
     val syncToleranceMs: StateFlow<Int> = _syncToleranceMs.asStateFlow()
 
+    /**
+     * Sync a subtitle to the speech in the audio when AutoSync keeps its original timing. Only
+     * platforms that have this call [installAudioSyncFallbackPersistence]; others hide the setting.
+     */
+    private val _audioSyncFallbackEnabled = MutableStateFlow(true)
+    val audioSyncFallbackEnabled: StateFlow<Boolean> = _audioSyncFallbackEnabled.asStateFlow()
+
+    var audioSyncFallbackSupported: Boolean = false
+        private set
+
     private var loadedProfileId: Int? = null
     private var loadPersistedValue: (() -> Boolean?)? = null
     private var savePersistedValue: ((Boolean) -> Unit)? = null
     private var loadAggressiveModePersistedValue: (() -> Boolean?)? = null
     private var saveAggressiveModePersistedValue: ((Boolean) -> Unit)? = null
+    private var loadAudioSyncFallbackPersistedValue: (() -> Boolean?)? = null
+    private var saveAudioSyncFallbackPersistedValue: ((Boolean) -> Unit)? = null
     private var loadSyncTolerancePersistedValue: (() -> Int?)? = null
     private var saveSyncTolerancePersistedValue: ((Int) -> Unit)? = null
     private var lastStartupSessionKey: Int? = null
@@ -52,12 +64,23 @@ internal object AutoSyncPreferencesRepository {
         loadedProfileId = null
     }
 
+    fun installAudioSyncFallbackPersistence(
+        load: () -> Boolean?,
+        save: (Boolean) -> Unit,
+    ) {
+        audioSyncFallbackSupported = true
+        loadAudioSyncFallbackPersistedValue = load
+        saveAudioSyncFallbackPersistedValue = save
+        loadedProfileId = null
+    }
+
     fun ensureLoaded() {
         val profileId = ProfileRepository.activeProfileId
         if (loadedProfileId == profileId) return
 
         _preferredSubtitleAutoSyncOnStart.value = loadPersistedValue?.invoke() ?: true
         _aggressiveMode.value = loadAggressiveModePersistedValue?.invoke() ?: true
+        _audioSyncFallbackEnabled.value = loadAudioSyncFallbackPersistedValue?.invoke() ?: true
         _syncToleranceMs.value = loadSyncTolerancePersistedValue?.invoke()
             ?.takeIf { it in syncToleranceOptionsMs } ?: 0
         loadedProfileId = profileId
@@ -77,6 +100,13 @@ internal object AutoSyncPreferencesRepository {
         if (_aggressiveMode.value == enabled) return
         _aggressiveMode.value = enabled
         saveAggressiveModePersistedValue?.invoke(enabled)
+    }
+
+    fun setAudioSyncFallbackEnabled(enabled: Boolean) {
+        ensureLoaded()
+        if (_audioSyncFallbackEnabled.value == enabled) return
+        _audioSyncFallbackEnabled.value = enabled
+        saveAudioSyncFallbackPersistedValue?.invoke(enabled)
     }
 
     fun setSyncToleranceMs(toleranceMs: Int) {

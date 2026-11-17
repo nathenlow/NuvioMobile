@@ -11,6 +11,7 @@ import com.nuvio.app.features.player.PlayerEngineController
 import com.nuvio.app.features.player.PlayerSubtitleUtils
 import com.nuvio.app.features.player.SidecarSubtitleController
 import com.nuvio.app.features.player.addonSubtitleTrackId
+import com.nuvio.app.features.player.audiosync.AudioSyncFallback
 import com.nuvio.app.features.player.getAssHandlerCompat
 import com.nuvio.tv.libass.media.AssHandler
 import kotlinx.coroutines.CancellationException
@@ -22,6 +23,7 @@ import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.autosync_toast_audio_fallback
 import nuvio.composeapp.generated.resources.autosync_toast_no_fit
 import org.jetbrains.compose.resources.StringResource
 import org.jetbrains.compose.resources.getString
@@ -32,6 +34,8 @@ internal class AutoSyncPlayerCoordinator(
     private val scope: CoroutineScope,
     private val player: ExoPlayer,
     private val sidecar: SidecarSubtitleController,
+    /** Syncs a subtitle to the audio when AutoSync keeps its original timing. */
+    private val audioFallback: AudioSyncFallback,
     private val sourceUrl: String,
     private val sourceHeaders: Map<String, String>,
     private val getSubtitleHeaders: (String) -> Map<String, String>,
@@ -57,7 +61,8 @@ internal class AutoSyncPlayerCoordinator(
         appliedListener = listener
     }
 
-    fun cancel() {
+    /** Ends the analysis in progress, leaving what the audio fallback has applied so far. */
+    private fun cancelAnalysis() {
         operationToken++
         job?.cancel()
         job = null
@@ -65,9 +70,22 @@ internal class AutoSyncPlayerCoordinator(
         selectedBodyJob = null
     }
 
+    /** The subtitle is replaced or cleared: nothing about the old one should be applied any more. */
+    fun cancel() {
+        cancelAnalysis()
+        audioFallback.stop()
+    }
+
+    /** The viewer sets the delay by hand: stop adjusting, but keep the timing already applied. */
+    fun cancelForManualDelay() {
+        cancelAnalysis()
+        audioFallback.freeze()
+    }
+
     fun dispose() {
         cancel()
         forgetLibassCopies()
+        audioFallback.release()
         appliedListener = null
     }
 
@@ -89,7 +107,7 @@ internal class AutoSyncPlayerCoordinator(
         }
     }
 
-    private fun showFailure(token: Long, resource: StringResource) {
+    private fun showToast(token: Long, resource: StringResource) {
         scope.launch {
             val text = getString(resource)
             if (operationToken == token) Toast.makeText(context, text, Toast.LENGTH_SHORT).show()
@@ -139,6 +157,8 @@ internal class AutoSyncPlayerCoordinator(
         player.trackSelectionParameters = player.trackSelectionParameters.buildUpon()
             .setTrackTypeDisabled(C.TRACK_TYPE_TEXT, true)
             .build()
+        // Listen to the audio while AutoSync analyses, so the audio can take over without a wait.
+        audioFallback.arm()
 
         selectedBodyJob = scope.launch {
             val body = try {
@@ -186,9 +206,19 @@ internal class AutoSyncPlayerCoordinator(
                 if (token != operationToken) return@launch
                 if (resolved == null) {
                     restoreOriginalIfRelevant()
-                    showNoFit(token, outcome)
+                    // The original timing is kept, and nothing says it is right: try the audio.
+                    if (
+                        shouldSyncToAudio(outcome, sidecarStillShowsSubtitle = sidecar.activeSidecarSubtitleKey == url) &&
+                        audioFallback.takeOver(url)
+                    ) {
+                        showToast(token, Res.string.autosync_toast_audio_fallback)
+                    } else {
+                        audioFallback.disarm()
+                        showNoFit(token, outcome)
+                    }
                     return@launch
                 }
+                audioFallback.disarm()
 
                 val chosenUrl = resolved.subtitleUrl
                 val tolerance = AutoSyncPreferencesRepository.syncToleranceMs.value
@@ -227,6 +257,7 @@ internal class AutoSyncPlayerCoordinator(
                 throw cancel
             } catch (_: Exception) {
                 if (token != operationToken) return@launch
+                audioFallback.disarm()
                 restoreOriginalIfRelevant()
             }
         }
@@ -234,7 +265,7 @@ internal class AutoSyncPlayerCoordinator(
 
     /** Only a confirmed no-fit is worth telling the viewer; every other failure stays silent. */
     private fun showNoFit(token: Long, outcome: AutoSyncAnalysisOutcome?) {
-        if (outcome == AutoSyncAnalysisOutcome.NO_FIT) showFailure(token, Res.string.autosync_toast_no_fit)
+        if (outcome == AutoSyncAnalysisOutcome.NO_FIT) showToast(token, Res.string.autosync_toast_no_fit)
     }
 
     /**

@@ -80,6 +80,7 @@ import com.nuvio.app.features.autosync.AutoSyncPreferencesRepository
 import com.nuvio.app.features.autosync.LIBMPV_AUTOSYNC_FILE_PREFIX
 import com.nuvio.app.features.autosync.rememberAutoSyncCoordinator
 import com.nuvio.app.features.autosync.rememberLibmpvAutoSyncCoordinator
+import com.nuvio.app.features.player.audiosync.AudioSyncTaps
 import com.nuvio.app.R
 import com.nuvio.app.features.streams.normalizeStreamType
 import `is`.xyz.mpv.MPV
@@ -314,6 +315,12 @@ private fun ExoPlayerSurface(
         resolvedMediaItem.isLocalFileSource()
     }
 
+    // AutoSync hook: the audio is only tapped while AutoSync and its audio fallback are both on.
+    val audioSyncTaps = remember(sourceUrl) {
+        AutoSyncPreferencesRepository.ensureLoaded()
+        AutoSyncPreferencesRepository.preferredSubtitleAutoSyncOnStart.value &&
+            AutoSyncPreferencesRepository.audioSyncFallbackEnabled.value
+    }
     val extractorsFactory = remember(sourceUrl) {
         DefaultExtractorsFactory()
             .setTsExtractorFlags(DefaultTsPayloadReaderFactory.FLAG_ENABLE_HDMV_DTS_AUDIO_STREAMS)
@@ -323,6 +330,9 @@ private fun ExoPlayerSurface(
                 if (AutoSyncPreferencesRepository.preferredSubtitleAutoSyncOnStart.value) {
                     AutoSyncExtractorsFactory(factory, sourceUrl)
                 } else factory
+            }
+            .let { factory -> // AutoSync hook: audio look-ahead for the audio fallback.
+                if (audioSyncTaps) AudioSyncTaps.wrapExtractors(factory, sourceUrl) else factory
             }
     }
     val dataSourceFactory = remember(
@@ -463,6 +473,7 @@ private fun ExoPlayerSurface(
             videoBoundsFractionProvider = {
                 playerViewRef?.videoBoundsFraction(latestVideoAspectRatio.value)
             },
+            tapAudioForSync = audioSyncTaps, // AutoSync hook
         )
             .setExtensionRendererMode(effectiveDecoderPriority)
             .setEnableDecoderFallback(true)
@@ -663,6 +674,8 @@ private fun ExoPlayerSurface(
         sidecar = sidecarController,
         playerSourceKey = playerSourceKey,
         sourceUrl = sourceUrl,
+        sourceAudioUrl = sourceAudioUrl,
+        dataSourceFactory = dataSourceFactory,
         sourceHeaders = sanitizedSourceHeaders,
         externalSubtitles = externalSubtitles,
         useLibass = useLibass,
@@ -2912,17 +2925,20 @@ private class SubtitleOffsetRenderersFactory(
     private val shouldStripSdhProvider: () -> Boolean,
     private val presentCues: (List<Cue>) -> List<Cue>,
     private val videoBoundsFractionProvider: () -> RectF?,
+    /** AutoSync hook: let the audio fallback hear the decoded audio where look-ahead can't. */
+    private val tapAudioForSync: Boolean,
 ) : DefaultRenderersFactory(context) {
     override fun buildAudioSink(
         context: Context,
         enableFloatOutput: Boolean,
         enableAudioTrackPlaybackParams: Boolean,
     ): AudioSink {
-        return DefaultAudioSink.Builder(context)
+        val sink = DefaultAudioSink.Builder(context)
             .setEnableFloatOutput(enableFloatOutput)
             .setEnableAudioTrackPlaybackParams(enableAudioTrackPlaybackParams)
             .setAudioProcessors(arrayOf(GainAudioProcessor(audioAmplificationDbProvider)))
             .build()
+        return if (tapAudioForSync) AudioSyncTaps.wrapAudioSink(sink) else sink
     }
 
     override fun buildAudioRenderers(

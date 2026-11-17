@@ -39,3 +39,13 @@ internal val AutoSyncCandidateScope.usesAlternativeProvider: Boolean
 internal fun shouldRestoreOriginalSubtitle(
     activeSidecarSubtitleKey: String?,
 ): Boolean = activeSidecarSubtitleKey == null
+
+/**
+ * Whether the audio should sync a subtitle AutoSync kept on its original timing: whenever the
+ * subtitle itself loaded and the sidecar still shows it. No match, no embedded subtitles and an
+ * inconclusive result all qualify, since none of them says the timing is right.
+ */
+internal fun shouldSyncToAudio(
+    outcome: AutoSyncAnalysisOutcome?,
+    sidecarStillShowsSubtitle: Boolean,
+): Boolean = sidecarStillShowsSubtitle && outcome != AutoSyncAnalysisOutcome.SUBTITLE_UNAVAILABLE

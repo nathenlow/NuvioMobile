@@ -171,15 +171,23 @@ Behaviour decisions made while splitting:
 
 ## 7. Phases (each a self-contained commit)
 
-1. **Signal core + weights + tests.** Fft, timeline, track, aligner, tracker, VAD, analyzer.
-   Port `AudioSubtitleSyncTest`. Nothing is wired in.
-2. **Capture.** Extractor and sink taps, decoder, FFmpeg shim, spot planner and sampler.
-   Port `SpotSamplingTest`.
-3. **Orchestration.** `AudioSyncCapture`, `SpotSampling`, `AudioAlignmentSession`,
-   `SyncMappingStore`, `SubtitleRetimer`, `AudioSyncFallback`, `AudioSyncTaps`. New unit tests for the
-   store codec and the retimer.
-4. **Wire-in.** Preference, settings row, strings, coordinator hooks, player taps, chip.
-5. **Docs and device verification** (checklist below).
+1. **Signal core + weights + tests.** Done (`147f2321`).
+2. **Capture.** Done (`0513daeb`).
+3. **Orchestration.** Done (`6527e5a5`).
+4. **Wire-in.** Done. Preference and settings row (hidden where the platform has no audio fallback),
+   strings, the two taps in `PlayerEngine.android.kt` (only while AutoSync and the fallback are both
+   on), and the coordinator's `arm` / `takeOver` / `disarm` / `stop` / `freeze` calls. The takeover
+   decision is a pure function, `shouldSyncToAudio`, with tests.
+5. **Device verification** (checklist in `docs/subtitle-autosync.md`). Not done: nothing has run on a
+   device yet.
+
+Wire-in decisions:
+- **Setting the delay by hand keeps the synced timing** (`freeze`). Every other cancel puts the
+  original timing back (`stop`), so a viewer who nudges the delay after a sync does not lose it.
+- **The taps are chosen when the player is created.** Turning the fallback off mid-playback restores
+  the original timing at once; turning it on needs the next playback for the look-ahead tap.
+- **The fallback object is created for every ExoPlayer**, even with AutoSync off. It is cheap: no
+  thread starts and no audio is touched until a subtitle is armed.
 
 ## 8. Risks and open questions
 
@@ -196,6 +204,8 @@ Behaviour decisions made while splitting:
 - **Fork tests (resolved in phases 1 and 2).** `AudioSubtitleSyncTest` and `SpotSamplingTest` had no
   ASR references and are ported, split by unit. `AsrMatchingTest` and `SubtitleCandidatePoolTest`
   are dropped.
+- **Spot sampling reads through the player's data source factory.** That is the one the player
+  builds, which may include the VOD cache, so sampled stretches could be written to it. Not checked.
 - **Accuracy on real content is unproven.** VAD matches speech rhythm, so loud music, songs and heavy
   sound effects can hurt it, and translated subtitles merge, split or drop lines. Judge it on actual
   K-drama and anime episodes before calling it done.

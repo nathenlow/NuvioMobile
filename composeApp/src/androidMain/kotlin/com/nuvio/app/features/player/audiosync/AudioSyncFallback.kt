@@ -138,6 +138,21 @@ internal class AudioSyncFallback(
         engine.stopSession()
     }
 
+    /**
+     * The viewer is adjusting the delay by hand: stop analysing, but keep the timing applied so far
+     * (unlike [stop], which puts the original timing back).
+     */
+    fun freeze() {
+        takeOverJob?.cancel()
+        takeOverJob = null
+        ticker?.cancel()
+        ticker = null
+        target.set(null)
+        appliedModel = null
+        engine.listensBeforeSession = false
+        engine.stopSession()
+    }
+
     fun release() {
         stop()
         player.removeListener(trackListener)
