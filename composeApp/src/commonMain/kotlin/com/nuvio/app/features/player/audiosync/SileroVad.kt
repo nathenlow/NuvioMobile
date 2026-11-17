@@ -7,7 +7,7 @@ import kotlin.math.sqrt
 
 /**
  * Pure Kotlin inference for the 16 kHz branch of Silero VAD v5
- * (https://github.com/snakers4/silero-vad). The bundled weights (res/raw/silero_vad_v5_16k.bin, float16)
+ * (https://github.com/snakers4/silero-vad). The bundled weights (composeResources/files/silero_vad_v5_16k.bin, float16)
  * are converted from the official ONNX export: Copyright (c) 2020-present Silero Team, MIT License.
  *
  * The network is small: a Hann-windowed 256-point STFT, four 1D convolutions, one LSTM cell and a

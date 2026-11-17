@@ -8,7 +8,7 @@ import java.io.File
 internal object AndroidSpeechFixtures {
     /** The bundled Silero VAD weights. Host tests run with the module directory as working directory. */
     fun sileroWeights(): SileroVadWeights =
-        SileroVadWeights.read(File("src/androidMain/res/raw/silero_vad_v5_16k.bin").readBytes())
+        SileroVadWeights.read(File("src/commonMain/composeResources/files/silero_vad_v5_16k.bin").readBytes())
 
     /** [cues] as a sidecar subtitle holds them. */
     fun cuesWithTiming(cues: List<TestCue>): List<CuesWithTiming> =

@@ -3,6 +3,9 @@ package com.nuvio.app.features.player.audiosync
 import kotlin.concurrent.Volatile
 import kotlin.math.roundToInt
 
+/** A subtitle with fewer dialogue lines has too little to line up against the audio. */
+internal const val MIN_AUDIO_SYNC_CUES = 20
+
 /**
  * The audio sync of one subtitle: its dialogue track and the [AudioSyncTracker] that decides when
  * the audio proves a mapping. Turns each tracker outcome into the state and status the rest of the

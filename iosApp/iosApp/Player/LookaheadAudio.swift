@@ -45,6 +45,7 @@ final class LookaheadAudio {
         guard let mpv = player() else { return false }
         stop()
         guard let rangeStart = bufferedRangeStart(mpv) else { return false }
+        Self.prepareFolder(for: path)
         try? FileManager.default.removeItem(atPath: path)
         let status = commandAsync(mpv, ["dump-cache", String(rangeStart), "no", path])
         guard status >= 0 else { return false }
@@ -69,6 +70,7 @@ final class LookaheadAudio {
     /// call it off the main thread. [endSeconds] stops short of the newest data, on the recording's own
     /// clock, so mpv does not wait at the end of a file that is still growing; 0 or less decodes it all.
     func decode(recordingPath: String, pcmPath: String, endSeconds: Double) -> Bool {
+        Self.prepareFolder(for: pcmPath)
         try? FileManager.default.removeItem(atPath: pcmPath)
         guard let decoder = mpv_create() else { return false }
         defer { mpv_terminate_destroy(decoder) }
@@ -93,6 +95,12 @@ final class LookaheadAudio {
         guard finished else { return false }
         let size = (try? FileManager.default.attributesOfItem(atPath: pcmPath)[.size] as? NSNumber)?.intValue ?? 0
         return size > 0
+    }
+
+    /// The folder the files go in may not exist yet (the first recording of a run, or after a clean-up).
+    private static func prepareFolder(for path: String) {
+        let folder = (path as NSString).deletingLastPathComponent
+        try? FileManager.default.createDirectory(atPath: folder, withIntermediateDirectories: true)
     }
 
     // MARK: - mpv

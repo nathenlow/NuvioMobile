@@ -13,8 +13,9 @@ keeps the original timing when the whole-film correction is within the chosen
 100–500 ms limit; Off applies all confident corrections.
 
 This port supports Android's internal ExoPlayer with HTTP(S) streams and subtitles
-that its sidecar renderer supports. ASS/SSA selected with libass, libmpv, external
-players, and iOS continue using their existing subtitle behavior.
+that its sidecar renderer supports. ASS/SSA selected with libass, libmpv, and external
+players continue using their existing subtitle behavior; the audio fallback also runs on
+iOS (see below).
 
 ## Audio fallback
 
@@ -25,7 +26,7 @@ spoken, so an English subtitle can be aligned to Korean or Japanese audio. It
 corrects a constant delay, a frame-rate stretch, and later jumps in the timing.
 
 - **Setting:** **Auto Sync: Match the Audio**, shown under the other AutoSync rows
-  on Android and on by default. Turning it off mid-playback puts the subtitle back on
+  on Android and iOS and on by default. Turning it off mid-playback puts the subtitle back on
   its original timing.
 - **Where the audio comes from:** the audio ExoPlayer is already demuxing (no extra
   download), plus the playing audio where no second decoder can run. On unmetered
@@ -41,9 +42,35 @@ corrects a constant delay, a frame-rate stretch, and later jumps in the timing.
 - **Remembered:** a confirmed mapping is saved for that stream and subtitle. Streams
   whose URL changes each session will not find it again.
 - **Limits:** it works from speech rhythm, so loud music or songs can hurt accuracy, and
-  translated subtitles that merge or drop lines are matched less exactly. ASS/SSA drawn
-  by libass, libmpv and iOS are not covered. A subtitle with fewer than 20 dialogue
-  lines is skipped.
+  translated subtitles that merge or drop lines are matched less exactly. On Android,
+  ASS/SSA drawn by libass and the libmpv engine are not covered. A subtitle with fewer
+  than 20 dialogue lines is skipped.
+
+### On iOS
+
+iOS plays through mpv, which has no audio tap, so the audio comes from mpv's own read-ahead
+instead (`LookaheadAudio.swift`, `LookaheadAudioSync.kt`):
+
+- mpv's `dump-cache` writes the buffered range that holds the playhead to a file in Caches, from
+  the start of the range, and keeps appending what mpv reads. A second, headless mpv decodes that
+  file to 16 kHz mono PCM about 800 times faster than real time. There is no second connection.
+- A recording's own clock starts at 0, so each recording is placed on the film's timeline by the
+  start of the buffered range when it began. Measured on a real stream, with video, resumed
+  mid-film, that is within 20 ms (`tools/mpv-lookahead-probe` on the `proto/ios-mpv-lookahead`
+  branch). The resume position alone would be up to a second out.
+- **It writes the video too**, since it records what mpv reads. Recording stops as soon as a
+  mapping is confirmed, after 6 minutes of recorded media, or after 10 minutes of trying, and
+  the files are deleted. The folder is emptied each time a player starts.
+- A seek out of the recorded range, or a recording that stops growing while mpv keeps
+  buffering, starts a new recording with a new anchor. What was heard before stays on the timeline.
+- The result is applied by rewriting the subtitle file's timestamps and swapping it in for the
+  add-on subtitle, so **ASS/SSA keeps its styling** through libass. A confirmed mapping is
+  remembered for the stream.
+- Limits: `dump-cache` is marked experimental by mpv; only MKV, MP4, MOV, MPEG-TS and WebM
+  streams can be recorded; a stream with a separate audio URL is not covered (mpv ignores external
+  files here); there is no early look-ahead before a subtitle is picked, and no sampling from
+  across the film, so it needs a little more playback than Android to lock; and once it locks
+  it stops, so a later change of cut is not followed.
 
 At startup, AutoSync can try other add-on subtitles in the same language. When the
 user selects a subtitle manually, it checks only that subtitle. An automatic
@@ -102,4 +129,9 @@ Physical-device checks still required:
    - Adjust the delay by hand after a sync: the synced timing stays.
    - Turn the setting off mid-playback: the subtitle returns to its original timing.
    - Verify that, with AutoSync or the setting off, no audio is analysed at all.
+   - On iOS, repeat the first three on an MKV and an MP4 stream, resuming mid-film as well as from the
+     start. Open the subtitle panel to watch the card, and check that the `lookahead` folder in the app's
+     Caches is empty once the sync has locked, and after leaving the player.
+   - On iOS, seek well outside the buffered range while it is still syncing; it should start a new
+     recording and still lock.
 7. Capture the settings rows and selected subtitle badge for PR review.
