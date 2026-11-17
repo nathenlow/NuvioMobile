@@ -16,6 +16,8 @@ internal object SpotSourcePolicy {
         val lowerPath = path.orEmpty().lowercase()
         return when {
             localEngine -> "not used for torrent streams (would slow playback)"
+            // A downloaded episode: a file on the device, read with no network and no cost to playback.
+            scheme == "file" -> null
             scheme != "http" && scheme != "https" -> "not available for this stream"
             lowerPath.endsWith(".m3u8") || lowerPath.endsWith(".mpd") -> "not available for playlist streams"
             else -> null
@@ -88,7 +90,8 @@ internal class SpotSampling(
         if (started.get()) return
         val current = source ?: return
         if (filmDurationMs < MIN_FILM_MS || timeline.knownFrameCount() < START_AFTER_FRAMES) return
-        if (!stillNeeded() || !unmeteredNow()) return
+        // Reading a file on the device uses no data, so the connection does not matter for it.
+        if (!stillNeeded() || (current.uri.scheme != "file" && !unmeteredNow())) return
         if (!started.compareAndSet(false, true)) return
         Thread({ sample(current, track, filmDurationMs, positionMs, stillNeeded) }, "NuvioAudioSyncSpots").apply {
             isDaemon = true

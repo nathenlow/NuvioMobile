@@ -6,6 +6,7 @@ import android.content.Context
 import android.net.Uri
 import androidx.media3.common.C
 import androidx.media3.common.Player
+import androidx.media3.datasource.DefaultDataSource
 import androidx.media3.common.Tracks
 import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.ExoPlayer
@@ -225,11 +226,12 @@ internal class AudioSyncFallback(
         ): AudioSyncFallback {
             val engine = AudioSyncEngine.create(context, sourceUrl)
             val audioUrl = sourceAudioUrl?.takeIf { it.isNotBlank() } ?: sourceUrl
-            // A download is read as it plays; sampling ahead is for streams, whose data is fetched anyway.
-            if (dataSourceFactory != null && !isLocalFileUrl(audioUrl)) {
+            // A download is sampled straight from its file; a stream, through the player's own data source.
+            val spotFactory = if (isLocalFileUrl(audioUrl)) DefaultDataSource.Factory(context) else dataSourceFactory
+            if (spotFactory != null) {
                 engine.setSpotSource(
                     url = audioUrl,
-                    dataSourceFactory = dataSourceFactory,
+                    dataSourceFactory = spotFactory,
                     extractorsFactory = DefaultExtractorsFactory(),
                     localEngine = SpotSourcePolicy.isLoopbackHost(runCatching { Uri.parse(audioUrl).host }.getOrNull()),
                 )

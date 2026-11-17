@@ -16,6 +16,11 @@ class SpotSourcePolicyTest {
     }
 
     @Test
+    fun aDownloadedFileCanBeSampled() {
+        assertNull(SpotSourcePolicy.unavailableReason("file", "/data/film.mkv", localEngine = false))
+    }
+
+    @Test
     fun playlistsCannotBeSampled() {
         assertNotNull(SpotSourcePolicy.unavailableReason("https", "/stream/Master.M3U8", localEngine = false))
         assertNotNull(SpotSourcePolicy.unavailableReason("https", "/manifest.mpd", localEngine = false))
