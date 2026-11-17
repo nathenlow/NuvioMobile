@@ -216,7 +216,18 @@ final class MPVPlayerBridgeImpl: NSObject, NuvioPlayerBridge {
     func getErrorMessage() -> String { playerVC?.currentErrorMessage ?? "" }
     func getProperty(name: String) -> String { playerVC?.getString(name) ?? "" }
 
+    // Look-ahead audio for subtitle sync.
+    private lazy var lookahead = LookaheadAudio { [weak self] in self?.playerVC?.mpvHandle }
+    func startLookaheadRecording(path: String) -> Bool { lookahead.start(path: path) }
+    func stopLookaheadRecording() { lookahead.stop() }
+    func getLookaheadAnchorSeconds() -> Double { lookahead.anchorSeconds }
+    func getBufferEndSeconds() -> Double { lookahead.bufferEndSeconds() }
+    func decodeLookaheadAudio(recordingPath: String, pcmPath: String, endSeconds: Double) -> Bool {
+        lookahead.decode(recordingPath: recordingPath, pcmPath: pcmPath, endSeconds: endSeconds)
+    }
+
     func destroy() {
+        lookahead.stop()
         playerVC?.systemControlHandler = nil
         playerVC?.destroyPlayer()
         playerVC = nil
@@ -300,6 +311,8 @@ final class MPVPlayerViewController: UIViewController {
     private(set) var isFileLoaded = false
     private var pendingLoadRetryWorkItem: DispatchWorkItem?
     private var mpv: OpaquePointer?
+    /// The playing mpv handle, for the look-ahead audio helper, which only borrows it.
+    var mpvHandle: OpaquePointer? { mpv }
     private var cachedNowPlayingMetadata: CachedNowPlayingMetadata?
     private lazy var nowPlayingController = PlayerNowPlayingController(owner: self)
     private lazy var audioSessionController: PlayerAudioSessionController = {

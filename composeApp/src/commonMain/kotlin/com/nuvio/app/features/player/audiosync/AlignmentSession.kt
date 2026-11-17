@@ -1,6 +1,10 @@
 package com.nuvio.app.features.player.audiosync
 
+import kotlin.concurrent.Volatile
 import kotlin.math.roundToInt
+
+/** A subtitle with fewer dialogue lines has too little to line up against the audio. */
+internal const val MIN_AUDIO_SYNC_CUES = 20
 
 /**
  * The audio sync of one subtitle: its dialogue track and the [AudioSyncTracker] that decides when
@@ -99,8 +103,8 @@ internal class AlignmentSession(
     private fun offsetAt(model: SubtitleSyncModel, positionMs: Long): Long = model.delayUsAt(positionMs * 1_000L) / 1_000L
 
     private fun SubtitleAudioAligner.Estimate.describe(): String =
-        "scale=${"%.5f".format(scale)} shift=${shiftMs.roundToInt()}ms peak=${"%.3f".format(peak)} " +
-            "prominence=${"%.3f".format(prominence)} cues=$cueCount speech=${speechSeconds.roundToInt()}s"
+        "scale=${scale.toFixed(5)} shift=${shiftMs.roundToInt()}ms peak=${peak.toFixed(3)} " +
+            "prominence=${prominence.toFixed(3)} cues=$cueCount speech=${speechSeconds.roundToInt()}s"
 
     private companion object {
         val NO_CHANGE = Update(status = null, remember = null, confirmed = false)

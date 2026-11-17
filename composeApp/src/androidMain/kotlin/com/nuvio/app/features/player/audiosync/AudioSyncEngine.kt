@@ -135,7 +135,7 @@ internal class AudioSyncEngine(
     private fun prepareSession(request: Int, key: String, cues: List<CuesWithTiming>) {
         val track = SubtitleSpeechTrack.fromCues(SubtitleRetimer.dialogueOf(cues))
         if (sessionRequest.get() != request || released) return
-        if (track.size < MIN_TRACK_CUES) {
+        if (track.size < MIN_AUDIO_SYNC_CUES) {
             AudioSyncLog.i("subtitle has only ${track.size} dialogue cues; audio sync skipped")
             return
         }
@@ -201,8 +201,6 @@ internal class AudioSyncEngine(
     }
 
     companion object {
-        /** A subtitle with fewer dialogue lines has too little to line up against the audio. */
-        private const val MIN_TRACK_CUES = 20
         private const val ALIGN_INTERVAL_MS = 8_000L
         private const val SEARCH_INTERVAL_MS = 3_000L
         private const val PREFERENCES = "nuvio_audio_sync"
@@ -212,7 +210,7 @@ internal class AudioSyncEngine(
             val appContext = context.applicationContext
             val timeline = SpeechTimeline()
             val duty = AnalysisDuty(SystemClock::elapsedRealtime)
-            val weights = { SileroVadResources.weights(appContext) }
+            val weights = SileroVadResources::weightsBlocking
             val capture = AudioSyncCapture(timeline, duty, weights)
             return AudioSyncEngine(
                 timeline = timeline,

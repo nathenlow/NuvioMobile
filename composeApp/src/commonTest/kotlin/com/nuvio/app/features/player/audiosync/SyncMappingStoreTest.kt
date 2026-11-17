@@ -47,7 +47,7 @@ class SyncMappingStoreTest {
     fun aValueThatCannotBeReadDoesNotBreakLoading() {
         val store = SyncMappingStore(storage, "stream")
         store.save("subtitle", model)
-        storage.values.replaceAll { _, _ -> "garbage" }
+        storage.values.keys.toList().forEach { storage.values[it] = "garbage" }
         assertNull(store.load("subtitle"))
     }
 }

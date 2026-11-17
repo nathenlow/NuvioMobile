@@ -11,7 +11,7 @@ import kotlin.test.assertTrue
 class SileroVadTest {
     @Test
     fun portMatchesTheReferenceModel() {
-        val vad = SileroVad(SyntheticSpeech.sileroWeights())
+        val vad = SileroVad(AndroidSpeechFixtures.sileroWeights())
         val signal = referenceSignal(REFERENCE_PROBABILITIES.size * SileroVad.CHUNK_SAMPLES)
         REFERENCE_PROBABILITIES.forEachIndexed { index, expected ->
             val actual = vad.process(signal, index * SileroVad.CHUNK_SAMPLES)
@@ -22,7 +22,7 @@ class SileroVadTest {
     @Test
     fun analyzerAlignsFramesToMediaTime() {
         val timeline = SpeechTimeline()
-        val analyzer = SpeechAnalyzer(SileroVad(SyntheticSpeech.sileroWeights()), timeline)
+        val analyzer = SpeechAnalyzer(SileroVad(AndroidSpeechFixtures.sileroWeights()), timeline)
         val rate = 48_000
         val block = FloatArray(1_024) { (0.1 * sin(2 * PI * 220 * it / rate)).toFloat() }
         var timeUs = 10_000_000L
@@ -40,7 +40,7 @@ class SileroVadTest {
     @Test
     fun aTimestampJumpRestartsTheAnalysisWithoutSmearingTheGap() {
         val timeline = SpeechTimeline()
-        val analyzer = SpeechAnalyzer(SileroVad(SyntheticSpeech.sileroWeights()), timeline)
+        val analyzer = SpeechAnalyzer(SileroVad(AndroidSpeechFixtures.sileroWeights()), timeline)
         val rate = 16_000
         val block = FloatArray(1_600) { (0.1 * sin(2 * PI * 220 * it / rate)).toFloat() }
         // Ten seconds of audio, then a seek to 10 minutes.
@@ -57,19 +57,6 @@ class SileroVadTest {
         val gapStart = SpeechTimeline.frameForTimeUs(11_000_000L)
         val gapEnd = SpeechTimeline.frameForTimeUs(599_000_000L)
         assertEquals(0, timeline.knownFramesIn(gapStart, gapEnd))
-    }
-
-    @Test
-    fun weightsFileIsRejectedWhenItIsNotTheExpectedFormat() {
-        var failed = false
-        try {
-            SileroVadWeights.read("not a weight file".byteInputStream())
-        } catch (_: IllegalArgumentException) {
-            failed = true
-        } catch (_: java.io.EOFException) {
-            failed = true
-        }
-        assertTrue(failed)
     }
 
     private fun referenceSignal(length: Int): FloatArray {

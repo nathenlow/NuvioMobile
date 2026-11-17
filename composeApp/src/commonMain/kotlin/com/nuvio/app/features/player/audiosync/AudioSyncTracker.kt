@@ -41,8 +41,28 @@ internal class SubtitleSyncModel(val segments: List<SubtitleSyncSegment>) {
         return null
     }
 
+    /**
+     * [subtitleMs] on the media clock, for rewriting a subtitle file. A line of a scene the release cuts
+     * has no place in the video, but a text file cannot drop it, so it keeps the nearest segment's mapping.
+     */
+    fun mappedMs(subtitleMs: Long): Long {
+        mediaTimeUs(subtitleMs * 1_000L)?.let { return (it / 1_000L).coerceAtLeast(0L) }
+        val nearest = segments.indices.minByOrNull { index ->
+            val mappedMs = subtitleMs * segments[index].scale + segments[index].shiftMs
+            val fromMs = if (index == 0) Double.NEGATIVE_INFINITY else segments[index].fromMediaMs.toDouble()
+            val untilMs = segments.getOrNull(index + 1)?.fromMediaMs?.toDouble() ?: Double.POSITIVE_INFINITY
+            when {
+                mappedMs < fromMs -> fromMs - mappedMs
+                mappedMs >= untilMs -> mappedMs - untilMs
+                else -> 0.0
+            }
+        } ?: 0
+        val segment = segments[nearest]
+        return (subtitleMs * segment.scale + segment.shiftMs).roundToLong().coerceAtLeast(0L)
+    }
+
     override fun toString(): String = segments.joinToString(prefix = "[", postfix = "]") {
-        "from=${it.fromMediaMs}ms scale=${"%.5f".format(it.scale)} shift=${it.shiftMs.roundToLong()}ms"
+        "from=${it.fromMediaMs}ms scale=${it.scale.toFixed(5)} shift=${it.shiftMs.roundToLong()}ms"
     }
 }
 

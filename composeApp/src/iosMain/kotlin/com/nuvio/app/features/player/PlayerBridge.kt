@@ -95,6 +95,26 @@ interface NuvioPlayerBridge {
     fun getPlaybackSpeed(): Float
     fun getErrorMessage(): String
     fun getProperty(name: String): String
+
+    /**
+     * Free look-ahead audio for subtitle sync (see LookaheadAudio.swift): mpv's own read-ahead is recorded
+     * and decoded to PCM, with no second connection. Starts recording the buffered range that holds the
+     * playhead, from its start, and keeps appending. False while the buffer is still empty.
+     */
+    fun startLookaheadRecording(path: String): Boolean
+    fun stopLookaheadRecording()
+
+    /** Media time, in seconds, of the current recording's first packet; NaN when there is none. */
+    fun getLookaheadAnchorSeconds(): Double
+
+    /** Media time, in seconds, up to which mpv has buffered; NaN while the buffer is empty. */
+    fun getBufferEndSeconds(): Double
+
+    /**
+     * Decodes the recording to 16 kHz mono float PCM at [pcmPath]. Blocks, so call it off the main thread.
+     * [endSeconds], on the recording's own clock, stops short of data still being written; 0 decodes it all.
+     */
+    fun decodeLookaheadAudio(recordingPath: String, pcmPath: String, endSeconds: Double): Boolean
     fun destroy()
 }
 

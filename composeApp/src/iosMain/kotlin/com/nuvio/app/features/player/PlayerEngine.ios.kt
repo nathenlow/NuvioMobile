@@ -29,6 +29,7 @@ import co.touchlab.kermit.Logger
 import com.nuvio.app.features.autosync.AutoSyncMpvCoordinator
 import com.nuvio.app.features.autosync.AutoSyncMpvEngineController
 import com.nuvio.app.features.autosync.IosAutoSyncMpvPlatform
+import com.nuvio.app.features.autosync.createIosAudioFallback
 import kotlinx.cinterop.ExperimentalForeignApi
 import kotlinx.cinterop.useContents
 import kotlinx.coroutines.delay
@@ -318,6 +319,7 @@ actual fun PlatformPlayerSurface(
             },
             getPreferredLanguage = { latestPlayerSettings.value.preferredSubtitleLanguage },
             platform = IosAutoSyncMpvPlatform,
+            audioFallback = createIosAudioFallback(coroutineScope, bridge, sourceUrl),
         )
     }
     DisposableEffect(autoSyncCoordinator) {

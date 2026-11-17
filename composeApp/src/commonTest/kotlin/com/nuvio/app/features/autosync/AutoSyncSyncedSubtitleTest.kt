@@ -33,6 +33,17 @@ class AutoSyncSyncedSubtitleTest {
     }
 
     @Test
+    fun clearingOnlyTheSyncingStateKeepsAConfirmedMark() {
+        AutoSyncSyncedSubtitle.mark("a")
+        AutoSyncSyncedSubtitle.clearSyncing()
+        assertEquals("a", AutoSyncSyncedSubtitle.url.value)
+
+        AutoSyncSyncedSubtitle.markSyncing("b")
+        AutoSyncSyncedSubtitle.clearSyncing()
+        assertNull(AutoSyncSyncedSubtitle.syncingUrl.value)
+    }
+
+    @Test
     fun clearingResetsBothStates() {
         AutoSyncSyncedSubtitle.markSyncing("a")
         AutoSyncSyncedSubtitle.clear()

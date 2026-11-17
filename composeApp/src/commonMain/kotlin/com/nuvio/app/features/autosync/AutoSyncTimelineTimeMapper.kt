@@ -7,7 +7,7 @@ import kotlin.math.roundToLong
  * Maps original subtitle times onto a retimed AutoSync timeline: the nearest retimed cue boundary
  * when one is close enough, otherwise the timeline's whole-film transform.
  */
-internal class AutoSyncTimelineTimeMapper(private val timeline: AutoSyncTimelineRetimeResult) {
+internal class AutoSyncTimelineTimeMapper(private val timeline: AutoSyncTimelineRetimeResult) : SubtitleTimeMapper {
     private val startBoundaries = timeline.cues
         .map { TimingBoundary(it.originalStartTimeMs, it.startTimeMs) }
         .sortedBy { it.originalMs }
@@ -15,9 +15,9 @@ internal class AutoSyncTimelineTimeMapper(private val timeline: AutoSyncTimeline
         .map { TimingBoundary(it.originalEndTimeMs, it.endTimeMs) }
         .sortedBy { it.originalMs }
 
-    fun mapStartMs(originalMs: Long): Long = mapTime(originalMs, startBoundaries)
+    override fun mapStartMs(originalMs: Long): Long = mapTime(originalMs, startBoundaries)
 
-    fun mapEndMs(originalMs: Long): Long = mapTime(originalMs, endBoundaries)
+    override fun mapEndMs(originalMs: Long): Long = mapTime(originalMs, endBoundaries)
 
     private fun mapTime(originalMs: Long, boundaries: List<TimingBoundary>): Long {
         if (boundaries.isNotEmpty()) {

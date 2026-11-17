@@ -8,6 +8,7 @@ internal object AutoSyncPreferencesIos {
     private const val preferredSubtitleAutoSyncOnStartKey = "preferred_subtitle_auto_sync_on_start"
     private const val aggressiveModeKey = "auto_sync_aggressive_mode"
     private const val syncToleranceMsKey = "auto_sync_tolerance_ms"
+    private const val audioSyncFallbackKey = "auto_sync_audio_fallback"
 
     private var installed = false
 
@@ -30,6 +31,10 @@ internal object AutoSyncPreferencesIos {
                     forKey = ProfileScopedKey.of(syncToleranceMsKey),
                 )
             },
+        )
+        AutoSyncPreferencesRepository.installAudioSyncFallbackPersistence(
+            load = { loadBoolean(audioSyncFallbackKey) },
+            save = { enabled -> saveBoolean(audioSyncFallbackKey, enabled) },
         )
     }
 

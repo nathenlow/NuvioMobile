@@ -78,7 +78,7 @@ class AudioSyncCaptureTest {
 
     @Test
     fun playbackAudioIsOnlyWantedWhereTheLookAheadLeftAGap() {
-        val heard = AudioSyncCapture(timeline, duty) { SyntheticSpeech.sileroWeights() }
+        val heard = AudioSyncCapture(timeline, duty) { AndroidSpeechFixtures.sileroWeights() }
         heard.prepare()
         assertTrue(heard.wantsPlaybackPcm(mediaTimeUs = 10_000_000L, durationUs = 1_000_000L))
         val from = SpeechTimeline.frameForTimeUs(10_000_000L)
@@ -91,7 +91,7 @@ class AudioSyncCaptureTest {
 
     @Test
     fun anEasedOffDutyCycleSkipsTheQuietMinutes() {
-        val heard = AudioSyncCapture(timeline, duty) { SyntheticSpeech.sileroWeights() }
+        val heard = AudioSyncCapture(timeline, duty) { AndroidSpeechFixtures.sileroWeights() }
         heard.prepare()
         duty.markLocked()
         clock.advance(11 * 60_000L)

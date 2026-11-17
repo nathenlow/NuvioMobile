@@ -1,20 +1,10 @@
 package com.nuvio.app.features.player.audiosync
 
-import android.content.SharedPreferences
-
 /** Where remembered mappings live; a seam so the store can be tested without Android. */
 internal interface MappingStorage {
     fun get(key: String): String?
 
     fun put(key: String, value: String)
-}
-
-internal class SharedPreferencesMappingStorage(private val preferences: SharedPreferences) : MappingStorage {
-    override fun get(key: String): String? = runCatching { preferences.getString(key, null) }.getOrNull()
-
-    override fun put(key: String, value: String) {
-        runCatching { preferences.edit().putString(key, value).apply() }
-    }
 }
 
 /** Text form of a [SubtitleSyncModel]: "fromMs,scale,shiftMs" per segment, separated by "|". */

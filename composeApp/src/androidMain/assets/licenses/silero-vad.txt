@@ -1,7 +1,7 @@
 Silero VAD v5 (16 kHz) weights
 Source: https://github.com/snakers4/silero-vad
 Used by: audio subtitle sync (features/player/audiosync). The weights in
-res/raw/silero_vad_v5_16k.bin are a float16 conversion of the official ONNX export.
+composeResources/files/silero_vad_v5_16k.bin are a float16 conversion of the official ONNX export.
 
 The MIT License (MIT)
 

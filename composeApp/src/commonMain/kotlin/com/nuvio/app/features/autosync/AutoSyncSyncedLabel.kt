@@ -53,6 +53,11 @@ internal object AutoSyncSyncedSubtitle {
         _url.value = null
     }
 
+    /** The audio fallback stopped before a result; a confirmed mark, if any, stays. */
+    fun clearSyncing() {
+        _syncingUrl.value = null
+    }
+
     fun clear() {
         _url.value = null
         _syncingUrl.value = null

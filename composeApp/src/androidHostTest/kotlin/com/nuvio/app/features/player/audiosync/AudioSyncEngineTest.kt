@@ -58,7 +58,7 @@ class AudioSyncEngineTest {
     @Test
     fun syncsASubtitleToTheAudioAndRemembersIt() {
         val engine = engine()
-        engine.startSession("subtitle", SyntheticSpeech.cuesWithTiming(cues))
+        engine.startSession("subtitle", AndroidSpeechFixtures.cuesWithTiming(cues))
         assertEquals(AudioSyncStatus.Listening, statuses.first())
 
         play(engine, speech)
@@ -72,13 +72,13 @@ class AudioSyncEngineTest {
     @Test
     fun aReplayStartsSyncedFromTheRememberedMapping() {
         val first = engine()
-        first.startSession("subtitle", SyntheticSpeech.cuesWithTiming(cues))
+        first.startSession("subtitle", AndroidSpeechFixtures.cuesWithTiming(cues))
         play(first, speech)
         val learned = first.currentModel()!!
         statuses.clear()
 
         val second = engine(liveTimeline = SpeechTimeline())
-        second.startSession("subtitle", SyntheticSpeech.cuesWithTiming(cues))
+        second.startSession("subtitle", AndroidSpeechFixtures.cuesWithTiming(cues))
 
         val synced = assertIs<AudioSyncStatus.Synced>(statuses.single())
         assertTrue(abs(synced.offsetMs - learned.delayUsAt(0L) / 1_000L) < 5L)
@@ -88,12 +88,12 @@ class AudioSyncEngineTest {
     @Test
     fun aRememberedMappingBelongsToItsStream() {
         val first = engine(sourceKey = "stream")
-        first.startSession("subtitle", SyntheticSpeech.cuesWithTiming(cues))
+        first.startSession("subtitle", AndroidSpeechFixtures.cuesWithTiming(cues))
         play(first, speech)
         statuses.clear()
 
         val other = engine(sourceKey = "another stream", liveTimeline = SpeechTimeline())
-        other.startSession("subtitle", SyntheticSpeech.cuesWithTiming(cues))
+        other.startSession("subtitle", AndroidSpeechFixtures.cuesWithTiming(cues))
 
         assertEquals(listOf<AudioSyncStatus>(AudioSyncStatus.Listening), statuses)
         assertNull(other.currentModel())
@@ -102,7 +102,7 @@ class AudioSyncEngineTest {
     @Test
     fun aSubtitleWithTooFewDialogueLinesIsLeftAlone() {
         val engine = engine()
-        engine.startSession("subtitle", SyntheticSpeech.cuesWithTiming(cues.take(10)))
+        engine.startSession("subtitle", AndroidSpeechFixtures.cuesWithTiming(cues.take(10)))
         play(engine, speech)
         assertTrue(statuses.isEmpty(), "$statuses")
         assertNull(engine.currentModel())
@@ -112,7 +112,7 @@ class AudioSyncEngineTest {
     fun nothingHappensWhileDisabled() {
         val engine = engine()
         engine.enabled = false
-        engine.startSession("subtitle", SyntheticSpeech.cuesWithTiming(cues))
+        engine.startSession("subtitle", AndroidSpeechFixtures.cuesWithTiming(cues))
         play(engine, speech)
         assertTrue(statuses.isEmpty(), "$statuses")
         assertNull(engine.currentModel())
@@ -121,7 +121,7 @@ class AudioSyncEngineTest {
     @Test
     fun turningItOffHidesTheMappingAndBackOnRestoresIt() {
         val engine = engine()
-        engine.startSession("subtitle", SyntheticSpeech.cuesWithTiming(cues))
+        engine.startSession("subtitle", AndroidSpeechFixtures.cuesWithTiming(cues))
         play(engine, speech)
         assertNotNull(engine.currentModel())
         engine.enabled = false
@@ -133,7 +133,7 @@ class AudioSyncEngineTest {
     @Test
     fun stoppingTheSessionDropsTheMapping() {
         val engine = engine()
-        engine.startSession("subtitle", SyntheticSpeech.cuesWithTiming(cues))
+        engine.startSession("subtitle", AndroidSpeechFixtures.cuesWithTiming(cues))
         play(engine, speech)
         engine.stopSession()
         assertNull(engine.currentModel())
@@ -142,9 +142,9 @@ class AudioSyncEngineTest {
     @Test
     fun startingAnotherSubtitleDropsTheFirstOnesMapping() {
         val engine = engine()
-        engine.startSession("subtitle", SyntheticSpeech.cuesWithTiming(cues))
+        engine.startSession("subtitle", AndroidSpeechFixtures.cuesWithTiming(cues))
         play(engine, speech)
-        engine.startSession("another subtitle", SyntheticSpeech.cuesWithTiming(cues.take(10)))
+        engine.startSession("another subtitle", AndroidSpeechFixtures.cuesWithTiming(cues.take(10)))
         assertNull(engine.currentModel())
     }
 
@@ -154,7 +154,7 @@ class AudioSyncEngineTest {
         engine.capture.onLiveOnly("audio/ac3")
         assertTrue(statuses.isEmpty())
 
-        engine.startSession("subtitle", SyntheticSpeech.cuesWithTiming(cues))
+        engine.startSession("subtitle", AndroidSpeechFixtures.cuesWithTiming(cues))
         statuses.clear()
         engine.capture.onLiveOnly("audio/ac3")
 
@@ -165,7 +165,7 @@ class AudioSyncEngineTest {
     fun aReleasedEngineDoesNothingMore() {
         val engine = engine()
         engine.release()
-        engine.startSession("subtitle", SyntheticSpeech.cuesWithTiming(cues))
+        engine.startSession("subtitle", AndroidSpeechFixtures.cuesWithTiming(cues))
         engine.onPlaybackPosition(10_000L, 600_000L)
         assertTrue(statuses.isEmpty())
         assertNull(engine.currentModel())
@@ -175,7 +175,7 @@ class AudioSyncEngineTest {
     fun aFailingListenerDoesNotStopTheAnalysis() {
         val engine = engine()
         engine.onStatus = { error("listener failure") }
-        engine.startSession("subtitle", SyntheticSpeech.cuesWithTiming(cues))
+        engine.startSession("subtitle", AndroidSpeechFixtures.cuesWithTiming(cues))
         play(engine, speech)
         assertNotNull(engine.currentModel())
     }
