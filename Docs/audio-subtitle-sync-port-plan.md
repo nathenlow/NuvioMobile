@@ -97,25 +97,41 @@ they run as host tests.
 | `androidx/media3/decoder/ffmpeg/AudioSyncFfmpegDecoder.kt` | copy | |
 | `DialogueSpotPlanner.kt`, `AudioSpotSampler.kt` | copy | Picks and fetches dialogue spots. |
 
-### Orchestration (rewritten from the 1,300-line controller)
-| New unit | Responsibility | Taken from |
-|---|---|---|
-| `AudioSyncCapture` | Owns the decoder lifecycle, the duty-window rule, and implements `AudioSampleSink` and `PlaybackPcmListener`. Answers "do you want these samples?" | controller lines ~1043-1120 |
-| `SpotSampling` | Wraps `SpotSource` and `maybeSampleSpots` / `sampleSpots`. Unmetered-only by default. | ~398-520 |
-| `AudioAlignmentSession` | One subtitle's `SubtitleSpeechTrack` + `AudioSyncTracker`, the alignment scheduler, and the mapping of `Outcome` to `AudioSyncStatus`. | `Session`, ~548-606, ~1120-1210 |
-| `SyncMappingStore` | Remembers and restores a mapping per (stream, subtitle). Versioned key, string codec. Unit-testable round trip. | ~1005-1041 |
-| `SubtitleRetimer` | Pure function: `retime(cues, model)`; drops cues of cut scenes. | `AudioSyncFallback.retime` |
-| `AudioSyncFallback` | Thin orchestrator for one stream: `arm`, `disarm`, `takeOver`, `stop`, `release`; applies each new model to the sidecar through `commitPreparedSidecarSubtitle`. | `AudioSyncFallback.kt`, minus candidate and content plumbing |
-| `AudioSyncTaps` | Registry the player builds look up (extractors and audio sink are created before the fallback). | `AudioSyncFallback.kt` bottom |
-| `AudioSyncStatus` | Sealed status type, without the model-download cases. | controller bottom |
-| `AudioSyncLog` (done, phase 2) | Thin wrapper over `android.util.Log`. Replaces `SyncLog`; no file logging or sharing. | `SyncLog.kt` |
+### Orchestration (rewritten from the 1,300-line controller; done in phase 3)
+| Unit | Responsibility |
+|---|---|
+| `AudioSyncEngine` | Per stream: owns the alignment thread, the active session, scheduling and the listener for status. Added during phase 3; it is what is left of the controller once the units below are taken out. |
+| `AudioSyncCapture` | Decides which audio is worth analysing, owns the decoder, and implements `AudioSampleSink` and `PlaybackPcmListener`. |
+| `SpotSampling` (+ `SpotSourcePolicy`) | Samples dialogue spots across the film, once per stream, on unmetered networks. |
+| `AlignmentSession` | One subtitle's track and tracker; turns each outcome into the model, status, and "remember this" decision. |
+| `SyncMappingStore` (+ `SyncMappingCodec`, `MappingStorage`) | Remembers and restores a mapping per (stream, subtitle). Hashed keys, versioned, storage behind an interface. |
+| `SubtitleRetimer` | `retime(cues, model)` and `dialogueOf(cues)`, both pure. |
+| `AnalysisDuty` | Eases analysis off once a mapping has been confirmed for a while. |
+| `AudioSyncFallback` | Thin glue for one stream: `arm`, `disarm`, `takeOver`, `stop`, `release`; applies each new model to the sidecar through `commitPreparedSidecarSubtitle`; keeps the "Auto synced" chip in step. Built with `create(...)`. |
+| `AudioSyncTaps` | Registry the player's extractor and audio-sink wrappers look up. |
+| `AudioSyncStatus`, `AudioTrackMatching`, `NetworkMetering`, `SileroVadResources`, `AudioSyncLog` | Small helpers. |
 
 Dropped from the controller with no replacement: the fetch pool, reference parsing, candidate and
 `switchedAway` tracking, `Handover`, recogniser loading and `onAsrLock`, `bridgeReferences`,
-`englishCandidates`, `audioIsForeign`, `setReferenceSubtitles`, `setContent`.
+`englishCandidates`, `audioIsForeign`, `setReferenceSubtitles`, `setContent`, the diagnostics panel,
+and `autoDelayMs` (the fallback retimes cues, so no extra delay is needed).
 
-Rough size: the orchestration should land well under half the controller's 62 KB. This is an
-estimate, not a measured figure.
+Measured size: the fork's controller (62 KB) and fallback (18 KB) became 13 files totalling 48 KB, the
+largest 9 KB. Each unit is covered by host tests.
+
+Behaviour decisions made while splitting:
+- **A confirmed lock is remembered.** In the fork, only the speech-recognition and subtitle-pool
+  paths saved a mapping, so a plain VAD lock was never saved and the store would have been dead code
+  here. The port saves on a confirmed lock and on a detected jump. Note that stream URLs from
+  debrid services often carry per-session tokens, so a replay of the "same" stream may not hit it.
+- **A remembered mapping also eases analysis off** after ten minutes, like a fresh lock. The fork
+  left such a session on full analysis for as long as it played.
+- **Metered networks are re-checked** (at most every 5 s) instead of declining sampling for the whole
+  stream, so a viewer who moves onto Wi-Fi mid-film gets it then. There is no mobile-data setting.
+- **Spots are planned from the chosen subtitle only.** The fork also used English reference subtitles
+  to place them; those came from the recognition path.
+- **Stored mappings are never pruned.** Entries are tiny, but they accumulate per stream and
+  subtitle. Worth a size cap later.
 
 ### Shared (commonMain)
 - `AutoSyncPreferencesRepository`: add `audioSyncFallbackEnabled` (default on, profile-scoped), with
@@ -149,7 +165,7 @@ estimate, not a measured figure.
 |---|---|---|
 | Feedback on success | "Auto synced" chip only | Matches the current "only failures show toasts" rule. |
 | Feedback while working | One short toast at takeover ("Syncing to the audio…"). | Analysis can take a while, and silence looks broken. |
-| Spot sampling on mobile data | Off; unmetered only. No setting. | Avoids a surprise download. Look-ahead from already-demuxed audio costs no extra data. |
+| Spot sampling on mobile data | Off; waits for an unmetered network. No setting. | Avoids a surprise download. Look-ahead from already-demuxed audio costs no extra data. |
 | Setting default | On, but only reached when AutoSync is on | The fallback only runs after AutoSync keeps the original timing. |
 | Remembered mappings | Keep (per stream and subtitle) | Replays instantly on resume or the next session. |
 
