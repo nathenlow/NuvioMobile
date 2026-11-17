@@ -17,6 +17,7 @@ import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.collection.CollectionSource
 import com.nuvio.app.features.collection.CollectionStorage
 import com.nuvio.app.features.profiles.ProfileRepository
+import com.nuvio.app.features.watched.isWatchHistoryCatalogKey
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -32,6 +33,7 @@ import kotlin.test.BeforeTest
 import kotlin.test.Test
 import kotlin.test.assertEquals
 import kotlin.test.assertNotNull
+import kotlin.test.assertFalse
 import kotlin.test.assertTrue
 
 @RunWith(RobolectricTestRunner::class)
@@ -65,6 +67,10 @@ class HomeCatalogSettingsRepositoryTest {
         HomeRepository.clear()
     }
 
+    /** The catalog entries that come from add-ons: the built-in Watch history entry is listed beside them. */
+    private fun addonCatalogItems() = HomeCatalogSettingsRepository.uiState.value.items
+        .filterNot { isWatchHistoryCatalogKey(it.key) }
+
     @Test
     fun unchangedCatalogsDoNotRewriteSettings() {
         val addons = listOf(addon())
@@ -74,7 +80,17 @@ class HomeCatalogSettingsRepositoryTest {
         HomeCatalogSettingsRepository.syncCatalogs(addons.map { it.copy() })
 
         assertEquals(editCount, preferences.editCount)
-        assertEquals("test:movie:popular", HomeCatalogSettingsRepository.uiState.value.items.single().key)
+        assertEquals("test:movie:popular", addonCatalogItems().single().key)
+    }
+
+    @Test
+    fun watchHistoryIsOfferedButSwitchedOffUntilTheUserTurnsItOn() {
+        HomeCatalogSettingsRepository.syncCatalogs(listOf(addon()))
+
+        val watchHistory = HomeCatalogSettingsRepository.uiState.value.items
+            .single { isWatchHistoryCatalogKey(it.key) }
+        assertFalse(watchHistory.enabled)
+        assertTrue(addonCatalogItems().single().enabled)
     }
 
     @Test
@@ -114,7 +130,7 @@ class HomeCatalogSettingsRepositoryTest {
         HomeCatalogSettingsRepository.syncCatalogs(addons)
 
         assertTrue(HomeCatalogSettingsRepository.uiState.value.items.none { it.isCollection })
-        assertEquals("test:movie:popular", HomeCatalogSettingsRepository.uiState.value.items.single().key)
+        assertEquals("test:movie:popular", addonCatalogItems().single().key)
     }
 
     @Test
