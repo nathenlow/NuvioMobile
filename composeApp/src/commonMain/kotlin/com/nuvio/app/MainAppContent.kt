@@ -173,6 +173,8 @@ import com.nuvio.app.features.updater.AppUpdaterHost
 import com.nuvio.app.features.updater.AppUpdaterPlatform
 import com.nuvio.app.features.updater.rememberAppUpdaterController
 import com.nuvio.app.features.watched.WatchedRepository
+import com.nuvio.app.features.watched.WatchHistoryRepository
+import com.nuvio.app.features.watched.containsWatchHistoryTitle
 import com.nuvio.app.features.watching.application.WatchingActions
 import com.nuvio.app.features.watching.application.WatchingState
 import com.nuvio.app.features.watching.application.canMarkWatched
@@ -1737,6 +1739,7 @@ internal fun MainAppContent(
                         route = route,
                         navController = navController,
                         onCatalogClick = onCatalogClick,
+                        onPosterLongClick = openPosterActions,
                     )
                 }
                     }.let { provider ->
@@ -1767,6 +1770,8 @@ internal fun MainAppContent(
                     )
                     val removesFromLibrary = isSaved &&
                         (posterActionTarget.libraryItem != null || !isRemoteLibrarySource)
+                    val watchHistoryKeys by WatchHistoryRepository.titleKeys.collectAsStateWithLifecycle()
+                    val inWatchHistory = watchHistoryKeys.containsWatchHistoryTitle(preview.type, preview.id)
                     NuvioPosterZoomActionOverlay(
                         imageUrl = selectedPosterAnchor?.imageUrl ?: preview.poster,
                         title = preview.name,
@@ -1909,6 +1914,14 @@ internal fun MainAppContent(
                                     }
                                 },
                             ),
+                        ) + listOfNotNull(
+                            PosterZoomOverlayAction(
+                                icon = Icons.Default.DeleteOutline,
+                                label = stringResource(Res.string.watch_history_remove_action),
+                                isDestructive = true,
+                                exitAnimation = PosterZoomOverlayExitAnimation.COLLAPSE,
+                                onSelected = { WatchHistoryRepository.requestRemove(preview) },
+                            ).takeIf { inWatchHistory },
                         ),
                         hazeState = posterOverlayHazeState,
                         onDismissed = {

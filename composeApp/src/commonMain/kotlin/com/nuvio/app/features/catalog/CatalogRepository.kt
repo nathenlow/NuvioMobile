@@ -7,6 +7,7 @@ import com.nuvio.app.features.collection.TmdbCollectionSourceResolver
 import com.nuvio.app.features.collection.catalogRouteKey
 import com.nuvio.app.features.library.LibraryRepository
 import com.nuvio.app.features.servers.ServerCatalog
+import com.nuvio.app.features.watched.WatchHistoryRepository
 import com.nuvio.app.features.servers.serverMessage
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.filterReleasedItems
@@ -18,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
@@ -46,6 +48,10 @@ object CatalogRepository {
             observeInternalLibrary(request)
             return
         }
+        if (target is CatalogTarget.WatchHistory) {
+            observeWatchHistory(request)
+            return
+        }
         fetchPage(
             request = request,
             reset = true,
@@ -53,10 +59,30 @@ object CatalogRepository {
         )
     }
 
+    private fun observeWatchHistory(request: CatalogRequest) {
+        activeJob?.cancel()
+        _uiState.value = CatalogUiState(isLoading = true)
+        activeJob = scope.launch {
+            launch { WatchHistoryRepository.refresh() }
+            combine(WatchHistoryRepository.items, WatchHistoryRepository.hasMore, ::Pair).collect { (items, hasMore) ->
+                if (activeRequest != request) return@collect
+                _uiState.value = CatalogUiState(
+                    items = items,
+                    isLoading = false,
+                    nextSkip = items.size.takeIf { hasMore },
+                )
+            }
+        }
+    }
+
     fun loadMore() {
         val request = activeRequest ?: return
         val current = _uiState.value
         if (current.isLoading || current.nextSkip == null) return
+        if (request.target is CatalogTarget.WatchHistory) {
+            WatchHistoryRepository.loadMore()
+            return
+        }
         fetchPage(
             request = request,
             reset = false,
@@ -158,7 +184,7 @@ object CatalogRepository {
 
                     is CatalogTarget.Server -> ServerCatalog.page(target, skip = requestedSkip)
 
-                    is CatalogTarget.Library -> error(getString(Res.string.catalog_load_failed))
+                    is CatalogTarget.Library, CatalogTarget.WatchHistory -> error(getString(Res.string.catalog_load_failed))
                 }.withUnreleasedFilter(request.hideUnreleasedContent)
             }.fold(
                 onSuccess = { page ->

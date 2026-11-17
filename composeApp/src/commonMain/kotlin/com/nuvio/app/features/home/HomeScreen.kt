@@ -62,7 +62,10 @@ import com.nuvio.app.features.home.components.HomeContinueWatchingSectionBottomP
 import com.nuvio.app.features.home.components.ContinueWatchingLayout
 import com.nuvio.app.features.tracking.TrackingSettingsRepository
 import com.nuvio.app.features.tracking.WatchProgressSource
+import com.nuvio.app.features.watched.WatchHistoryRepository
 import com.nuvio.app.features.watched.WatchedItem
+import com.nuvio.app.features.watched.isWatchHistoryCatalogKey
+import com.nuvio.app.features.watched.watchHistorySection
 import com.nuvio.app.features.watched.WatchedRepository
 import com.nuvio.app.features.watched.WatchedUiState
 import com.nuvio.app.features.watched.episodePlaybackId
@@ -897,6 +900,11 @@ fun HomeScreen(
     val collectionsMap = remember(visibleCollections) {
         visibleCollections.associateBy { "collection_${it.id}" }
     }
+    val watchHistoryItems by WatchHistoryRepository.items.collectAsStateWithLifecycle()
+    val historyEnabled = homeSettingsUiState.items.any { it.enabled && isWatchHistoryCatalogKey(it.key) }
+    LaunchedEffect(historyEnabled, activeProfileId, watchedUiState.items.size) {
+        if (historyEnabled) WatchHistoryRepository.refresh()
+    }
     val sectionsMap = remember(homeUiState.sections) {
         homeUiState.sections.associateBy(HomeCatalogSection::key)
     }
@@ -1187,7 +1195,15 @@ fun HomeScreen(
                                 }
                             }
                         } else {
-                            val section = sectionsMap[settingsItem.key]
+                            val isHistory = isWatchHistoryCatalogKey(settingsItem.key)
+                            val section = if (isHistory) {
+                                watchHistorySection(
+                                    items = watchHistoryItems,
+                                    title = settingsItem.customTitle.ifBlank { settingsItem.defaultTitle },
+                                )
+                            } else {
+                                sectionsMap[settingsItem.key]
+                            }
                             if (section != null && section.items.isNotEmpty()) {
                                 item(key = keyedSettingsItem.lazyKey, contentType = "catalog") {
                                     HomeCatalogRowSection(

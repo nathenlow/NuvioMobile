@@ -5,6 +5,8 @@ import com.nuvio.app.features.addons.ManagedAddon
 import com.nuvio.app.features.collection.Collection
 import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.servers.ServerCatalog
+import com.nuvio.app.features.watched.isHiddenByDefaultCatalog
+import com.nuvio.app.features.watched.isWatchHistoryCatalogKey
 import com.nuvio.app.features.servers.ServerRepository
 import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.runBlocking
@@ -354,7 +356,7 @@ object HomeCatalogSettingsRepository {
             normalized[entry.key] = StoredHomeCatalogPreference(
                 key = entry.key,
                 customTitle = stored?.customTitle.orEmpty(),
-                enabled = stored?.enabled ?: true,
+                enabled = stored?.enabled ?: !isHiddenByDefaultCatalog(entry.key),
                 heroSourceEnabled = heroSourceEnabled,
                 order = stored?.order ?: nextOrder++,
             )
@@ -372,7 +374,7 @@ object HomeCatalogSettingsRepository {
                     defaultTitle = definition.defaultTitle,
                     addonName = definition.addonName,
                     customTitle = preference?.customTitle.orEmpty(),
-                    enabled = preference?.enabled ?: true,
+                    enabled = preference?.enabled ?: !isHiddenByDefaultCatalog(definition.key),
                     heroSourceEnabled = preference?.heroSourceEnabled ?: true,
                     order = preference?.order ?: 0,
                 )
@@ -477,7 +479,7 @@ object HomeCatalogSettingsRepository {
         ensureLoaded()
         val catalogDefinitionsByKey = definitions.associateBy { it.key }
         val collectionDefinitionsByKey = collectionDefinitions.associateBy { it.key }
-        val items = preferences.values.filterNot { ServerCatalog.isServerKey(it.key) }.sortedBy { it.order }.map { pref ->
+        val items = preferences.values.filterNot { ServerCatalog.isServerKey(it.key) || isWatchHistoryCatalogKey(it.key) }.sortedBy { it.order }.map { pref ->
             val catalogDefinition = catalogDefinitionsByKey[pref.key]
             val collectionDefinition = collectionDefinitionsByKey[pref.key]
             val isCollection = collectionDefinition != null || pref.key.startsWith("collection_")
