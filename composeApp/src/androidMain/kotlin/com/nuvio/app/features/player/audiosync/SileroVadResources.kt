@@ -13,7 +13,7 @@ internal object SileroVadResources {
         cached?.let { return it }
         return synchronized(this) {
             cached ?: runCatching {
-                context.applicationContext.resources.openRawResource(R.raw.silero_vad_v5_16k).use(SileroVadWeights::read)
+                context.applicationContext.resources.openRawResource(R.raw.silero_vad_v5_16k).use { SileroVadWeights.read(it.readBytes()) }
             }.onFailure {
                 AudioSyncLog.w("could not load VAD weights: ${it.message}")
             }.getOrNull()?.also { cached = it }

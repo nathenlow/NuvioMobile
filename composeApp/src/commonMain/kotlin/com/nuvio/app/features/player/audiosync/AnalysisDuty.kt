@@ -1,5 +1,7 @@
 package com.nuvio.app.features.player.audiosync
 
+import kotlin.concurrent.Volatile
+
 /**
  * Decides which stretches of audio are worth analysing. Until a mapping is confirmed everything is.
  * Once it has been refined over a long stretch, analysing one minute in three is enough to follow

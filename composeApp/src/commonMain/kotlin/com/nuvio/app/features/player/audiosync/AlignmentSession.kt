@@ -1,5 +1,6 @@
 package com.nuvio.app.features.player.audiosync
 
+import kotlin.concurrent.Volatile
 import kotlin.math.roundToInt
 
 /**
@@ -99,8 +100,8 @@ internal class AlignmentSession(
     private fun offsetAt(model: SubtitleSyncModel, positionMs: Long): Long = model.delayUsAt(positionMs * 1_000L) / 1_000L
 
     private fun SubtitleAudioAligner.Estimate.describe(): String =
-        "scale=${"%.5f".format(scale)} shift=${shiftMs.roundToInt()}ms peak=${"%.3f".format(peak)} " +
-            "prominence=${"%.3f".format(prominence)} cues=$cueCount speech=${speechSeconds.roundToInt()}s"
+        "scale=${scale.toFixed(5)} shift=${shiftMs.roundToInt()}ms peak=${peak.toFixed(3)} " +
+            "prominence=${prominence.toFixed(3)} cues=$cueCount speech=${speechSeconds.roundToInt()}s"
 
     private companion object {
         val NO_CHANGE = Update(status = null, remember = null, confirmed = false)

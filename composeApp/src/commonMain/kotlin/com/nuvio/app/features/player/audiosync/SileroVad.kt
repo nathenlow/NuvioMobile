@@ -1,8 +1,5 @@
 package com.nuvio.app.features.player.audiosync
 
-import java.io.DataInputStream
-import java.io.EOFException
-import java.io.InputStream
 import kotlin.math.PI
 import kotlin.math.cos
 import kotlin.math.exp
@@ -200,19 +197,17 @@ internal class SileroVadWeights(
     val decoderBias: Float,
 ) {
     companion object {
-        private val MAGIC = "NSVAD16\u0000".toByteArray(Charsets.US_ASCII)
+        private val MAGIC = "NSVAD16\u0000".encodeToByteArray()
 
         /** Reads the float16 weight file produced from the official ONNX export. */
-        fun read(input: InputStream): SileroVadWeights {
-            val data = DataInputStream(input.buffered())
-            val magic = ByteArray(MAGIC.size)
-            data.readFully(magic)
-            require(magic.contentEquals(MAGIC)) { "Unexpected Silero VAD weight file" }
-            val count = data.readLittleInt()
+        fun read(bytes: ByteArray): SileroVadWeights {
+            val reader = LittleEndianReader(bytes)
+            require(reader.bytes(MAGIC.size).contentEquals(MAGIC)) { "Unexpected Silero VAD weight file" }
+            val count = reader.int()
             require(count == 14) { "Unexpected Silero VAD tensor count $count" }
             val tensors = List(count) {
-                val size = data.readLittleInt()
-                FloatArray(size) { halfToFloat(data.readLittleShort()) }
+                val size = reader.int()
+                FloatArray(size) { halfToFloat(reader.short()) }
             }
             val weightIh = tensors[8]
             val weightHh = tensors[9]
@@ -244,18 +239,6 @@ internal class SileroVadWeights(
             return this
         }
 
-        private fun DataInputStream.readLittleInt(): Int {
-            val b0 = read(); val b1 = read(); val b2 = read(); val b3 = read()
-            if ((b0 or b1 or b2 or b3) < 0) throw EOFException()
-            return b0 or (b1 shl 8) or (b2 shl 16) or (b3 shl 24)
-        }
-
-        private fun DataInputStream.readLittleShort(): Int {
-            val b0 = read(); val b1 = read()
-            if ((b0 or b1) < 0) throw EOFException()
-            return b0 or (b1 shl 8)
-        }
-
         private fun halfToFloat(half: Int): Float {
             val sign = (half and 0x8000) shl 16
             val exponent = (half ushr 10) and 0x1F
@@ -272,5 +255,32 @@ internal class SileroVadWeights(
             }
             return Float.fromBits(bits)
         }
+    }
+}
+
+/** Little-endian reads from a byte array; a short file fails with a clear message instead of a crash. */
+private class LittleEndianReader(private val data: ByteArray) {
+    private var position = 0
+
+    fun bytes(count: Int): ByteArray {
+        require(position + count <= data.size) { "Silero VAD weight file is truncated" }
+        return data.copyOfRange(position, position + count).also { position += count }
+    }
+
+    fun short(): Int {
+        require(position + 2 <= data.size) { "Silero VAD weight file is truncated" }
+        val value = (data[position].toInt() and 0xFF) or ((data[position + 1].toInt() and 0xFF) shl 8)
+        position += 2
+        return value
+    }
+
+    fun int(): Int {
+        require(position + 4 <= data.size) { "Silero VAD weight file is truncated" }
+        val value = (data[position].toInt() and 0xFF) or
+            ((data[position + 1].toInt() and 0xFF) shl 8) or
+            ((data[position + 2].toInt() and 0xFF) shl 16) or
+            ((data[position + 3].toInt() and 0xFF) shl 24)
+        position += 4
+        return value
     }
 }

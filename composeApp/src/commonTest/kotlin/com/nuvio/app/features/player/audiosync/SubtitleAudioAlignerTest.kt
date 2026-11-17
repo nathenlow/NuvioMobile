@@ -101,8 +101,8 @@ class SubtitleAudioAlignerTest {
     private fun directBestPeak(slice: FloatArray, fromFrame: Int, track: SubtitleSpeechTrack): Double {
         val frameMs = SpeechTimeline.FRAME_DURATION_MS
         val bias = SubtitleAudioAligner.DETECTOR_BIAS_MS
-        val minLag = Math.floorDiv((-10_000.0 + bias).roundToInt(), frameMs.toInt())
-        val maxLag = Math.floorDiv((10_000.0 + bias).roundToInt(), frameMs.toInt()) + 1
+        val minLag = (-10_000.0 + bias).roundToInt().floorDiv(frameMs.toInt())
+        val maxLag = (10_000.0 + bias).roundToInt().floorDiv(frameMs.toInt()) + 1
         val known = slice.indices.filter { !slice[it].isNaN() }
         val mean = known.sumOf { slice[it].toDouble() } / known.size
         val norm = sqrt(known.sumOf { (slice[it] - mean) * (slice[it] - mean) })
