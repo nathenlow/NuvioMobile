@@ -19,6 +19,8 @@ internal object AutoSyncSubtitleHttp {
         maxResponseBodyBytes: Int,
         languageHint: String? = null,
     ): RawHttpResponse {
+        // A downloaded episode's subtitles are files beside it: read them, no request involved.
+        if (isLocalFileUrl(url)) return readLocalFile(url, maxResponseBodyBytes, languageHint)
         // Preserve Nuvio's raw-HTTP behavior: let the client negotiate transparent
         // compression instead of forwarding caller-provided Accept-Encoding.
         val requestHeaders = headers.filterKeys { !it.equals("Accept-Encoding", ignoreCase = true) }
@@ -41,6 +43,20 @@ internal object AutoSyncSubtitleHttp {
                 headers = response.headers,
             )
         }
+    }
+
+    private fun readLocalFile(url: String, maxBytes: Int, languageHint: String?): RawHttpResponse {
+        val bytes = autoSyncReadLocalFile(url, maxBytes + 1)
+            ?: return RawHttpResponse(404, "Not Found", url, "", emptyMap())
+        val truncated = bytes.size > maxBytes
+        val decoded = SubtitleCharsetDetector.decode(if (truncated) bytes.copyOf(maxBytes) else bytes, languageHint = languageHint)
+        return RawHttpResponse(
+            status = 200,
+            statusText = "OK",
+            url = url,
+            body = if (truncated) "$decoded$TRUNCATION_SUFFIX" else decoded,
+            headers = emptyMap(),
+        )
     }
 
     private class LimitedBody(val bytes: ByteArray, val truncated: Boolean)

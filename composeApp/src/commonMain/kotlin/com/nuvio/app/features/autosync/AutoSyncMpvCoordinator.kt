@@ -106,14 +106,16 @@ internal class AutoSyncMpvCoordinator(
         AutoSyncPreferencesRepository.ensureLoaded()
         if (decideAutoSyncStart(AutoSyncPreferencesRepository.preferredSubtitleAutoSyncOnStart.value) ==
             AutoSyncStartAction.ATTACH_ORIGINAL ||
-            !(sourceUrl.startsWith("https://", true) || sourceUrl.startsWith("http://", true))) {
+            !isSyncableSource(sourceUrl)) {
             return
         }
 
         val subtitleHeaders = getSubtitleHeaders(url)
         val subtitleLanguage = candidates.firstOrNull { it.url == url }?.language
             ?.takeIf { it.isNotBlank() } ?: getPreferredLanguage()
-        EmbeddedSubtitleTimelineLoader.prefetch(scope, sourceUrl, sourceHeaders)
+        // A download has no stream to read subtitle timing from: only its audio can say.
+        val isDownload = isLocalFileUrl(sourceUrl)
+        if (!isDownload) EmbeddedSubtitleTimelineLoader.prefetch(scope, sourceUrl, sourceHeaders)
 
         job = scope.launch {
             try {
@@ -132,10 +134,10 @@ internal class AutoSyncMpvCoordinator(
                         onAnalysisOutcome = { outcome = it },
                         allowLiveReference = false,
                     )
-                var resolved = search(candidateScope)
+                var resolved = if (isDownload) null else search(candidateScope)
                 // The restored subtitle does not fit: look for another one that does.
                 if (
-                    resolved == null && token == operationToken &&
+                    !isDownload && resolved == null && token == operationToken &&
                     candidateScope.searchAfterSelectedFailed(outcome)
                 ) {
                     resolved = search(AutoSyncCandidateScope.STARTUP_SEARCH)

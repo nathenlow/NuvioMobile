@@ -136,3 +136,17 @@ internal actual fun autoSyncDecodeBytes(
         null
     }
 }
+
+internal actual fun autoSyncReadLocalFile(url: String, maxBytes: Int): ByteArray? =
+    runCatching {
+        java.io.File(java.net.URI(url)).inputStream().use { input ->
+            val buffer = ByteArray(maxBytes.coerceAtLeast(0))
+            var total = 0
+            while (total < buffer.size) {
+                val read = input.read(buffer, total, buffer.size - total)
+                if (read < 0) break
+                total += read
+            }
+            buffer.copyOf(total)
+        }
+    }.getOrNull()

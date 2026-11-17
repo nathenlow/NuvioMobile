@@ -95,6 +95,9 @@ internal expect suspend fun <T> autoSyncHttpGet(
     block: suspend (AutoSyncHttpResponse) -> T,
 ): T
 
+/** Up to [maxBytes] of the file at the `file://` address [url], or null when it cannot be read. */
+internal expect fun autoSyncReadLocalFile(url: String, maxBytes: Int): ByteArray?
+
 /** True when this platform can decode text in the charset with IANA name [charsetName]. */
 internal expect fun autoSyncIsCharsetSupported(charsetName: String): Boolean
 

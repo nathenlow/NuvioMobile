@@ -72,6 +72,14 @@ instead (`LookaheadAudio.swift`, `LookaheadAudioSync.kt`):
   across the film, so it needs a little more playback than Android to lock; and once it locks
   it stops, so a later change of cut is not followed.
 
+### Downloaded episodes
+
+A download plays from a file, and its add-on subtitles are saved beside it, so there is no stream to read
+subtitle timing from. AutoSync skips the embedded-subtitle search for these and goes straight to the audio
+fallback, reading the saved subtitle file directly. On Android the audio is tapped as it plays (no sampling
+ahead); on iOS the headless mpv decodes the first six minutes of the downloaded file, with nothing to record.
+The mapping is remembered against the file. ASS/SSA drawn by libass is not covered, as for streams.
+
 At startup, AutoSync can try other add-on subtitles in the same language. When the
 user selects a subtitle manually, it checks only that subtitle. An automatic
 replacement updates the subtitle selection but does not persist an automatic pick

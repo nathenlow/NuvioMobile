@@ -11,6 +11,7 @@ import androidx.media3.datasource.DataSource
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.extractor.DefaultExtractorsFactory
 import androidx.media3.extractor.text.CuesWithTiming
+import com.nuvio.app.features.autosync.isLocalFileUrl
 import com.nuvio.app.features.autosync.AutoSyncSyncedSubtitle
 import com.nuvio.app.features.player.SidecarSubtitleController
 import kotlinx.coroutines.CoroutineScope
@@ -224,7 +225,8 @@ internal class AudioSyncFallback(
         ): AudioSyncFallback {
             val engine = AudioSyncEngine.create(context, sourceUrl)
             val audioUrl = sourceAudioUrl?.takeIf { it.isNotBlank() } ?: sourceUrl
-            if (dataSourceFactory != null) {
+            // A download is read as it plays; sampling ahead is for streams, whose data is fetched anyway.
+            if (dataSourceFactory != null && !isLocalFileUrl(audioUrl)) {
                 engine.setSpotSource(
                     url = audioUrl,
                     dataSourceFactory = dataSourceFactory,

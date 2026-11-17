@@ -120,7 +120,7 @@ internal class AutoSyncPlayerCoordinator(
         AutoSyncPreferencesRepository.ensureLoaded()
         if (decideAutoSyncStart(AutoSyncPreferencesRepository.preferredSubtitleAutoSyncOnStart.value) ==
             AutoSyncStartAction.ATTACH_ORIGINAL ||
-            !(sourceUrl.startsWith("https://", true) || sourceUrl.startsWith("http://", true))) {
+            !isSyncableSource(sourceUrl)) {
             fallbackAttach(url)
             return
         }
@@ -140,8 +140,10 @@ internal class AutoSyncPlayerCoordinator(
             return
         }
 
+        // A download has no stream to read subtitle timing from: only its audio can say.
+        val isDownload = isLocalFileUrl(sourceUrl)
         // Start index requests only once an add-on subtitle actually needs AutoSync.
-        EmbeddedSubtitleTimelineLoader.prefetch(scope, sourceUrl, sourceHeaders)
+        if (!isDownload) EmbeddedSubtitleTimelineLoader.prefetch(scope, sourceUrl, sourceHeaders)
         val bodyDeferred = CompletableDeferred<String?>()
         if (!sidecar.startSidecarAddonSubtitle(
                 url = url,
@@ -193,10 +195,10 @@ internal class AutoSyncPlayerCoordinator(
                         } else null,
                         onAnalysisOutcome = { outcome = it },
                     )
-                var resolved = search(candidateScope)
+                var resolved = if (isDownload) null else search(candidateScope)
                 // The restored subtitle does not fit: look for another one that does.
                 if (
-                    resolved == null && token == operationToken &&
+                    !isDownload && resolved == null && token == operationToken &&
                     candidateScope.searchAfterSelectedFailed(outcome)
                 ) {
                     resolved = search(AutoSyncCandidateScope.STARTUP_SEARCH)

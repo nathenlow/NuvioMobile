@@ -19,6 +19,9 @@ import platform.CoreFoundation.CFStringConvertIANACharSetNameToEncoding
 import platform.CoreFoundation.CFStringCreateWithCString
 import platform.CoreFoundation.kCFStringEncodingUTF8
 import platform.Foundation.NSData
+import platform.Foundation.NSURL
+import platform.Foundation.dataWithContentsOfFile
+import platform.posix.memcpy
 import platform.Foundation.NSString
 import platform.Foundation.NSStringEncoding
 import platform.Foundation.create
@@ -148,4 +151,14 @@ private fun decodeStrict(bytes: ByteArray, offset: Int, length: Int, encoding: N
         NSData.create(bytes = pinned.addressOf(offset), length = length.toULong())
     }
     return NSString.create(data = data, encoding = encoding) as String?
+}
+
+@OptIn(ExperimentalForeignApi::class)
+internal actual fun autoSyncReadLocalFile(url: String, maxBytes: Int): ByteArray? {
+    val path = NSURL(string = url).path ?: return null
+    val data = NSData.dataWithContentsOfFile(path) ?: return null
+    val size = minOf(data.length.toInt(), maxBytes.coerceAtLeast(0))
+    val bytes = ByteArray(size)
+    if (size > 0) bytes.usePinned { memcpy(it.addressOf(0), data.bytes, size.toULong()) }
+    return bytes
 }
