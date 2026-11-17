@@ -1,0 +1,174 @@
+package com.nuvio.app.features.watched
+
+import com.nuvio.app.features.catalog.CatalogPage
+import com.nuvio.app.features.details.MetaDetailsRepository
+import com.nuvio.app.features.home.MetaPreview
+import com.nuvio.app.features.profiles.ProfileRepository
+import com.nuvio.app.features.watching.sync.SupabaseWatchedSyncAdapter
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
+import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.flow.MutableSharedFlow
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharedFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asSharedFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.Semaphore
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.sync.withPermit
+
+private const val PULL_PAGE_SIZE = 500
+private const val HISTORY_PAGE_SIZE = 30
+private const val POSTER_LOOKUPS_AT_ONCE = 6
+
+/**
+ * The watch history stored on the Nuvio server, newest first, one entry per title.
+ * Titles are shown a page at a time: [items] holds the pages loaded so far and [hasMore] says
+ * whether older titles remain for [loadMore].
+ */
+object WatchHistoryRepository {
+    private val _items = MutableStateFlow<List<MetaPreview>>(emptyList())
+    val items: StateFlow<List<MetaPreview>> = _items.asStateFlow()
+    private val _hasMore = MutableStateFlow(false)
+    val hasMore: StateFlow<Boolean> = _hasMore.asStateFlow()
+
+    private val _titleKeys = MutableStateFlow<Set<String>>(emptySet())
+    /** Every title in the history (not just the pages loaded), for "is this in my history?" checks. */
+    val titleKeys: StateFlow<Set<String>> = _titleKeys.asStateFlow()
+
+    private val _removed = MutableSharedFlow<MetaPreview>(extraBufferCapacity = 8)
+    /** Emits each title taken out of the history, so screens holding their own copy can drop it. */
+    val removed: SharedFlow<MetaPreview> = _removed.asSharedFlow()
+
+    private val mutex = Mutex()
+    private val posterLookups = Semaphore(POSTER_LOOKUPS_AT_ONCE)
+    // Outlives any dialog or screen, so a delete is not cancelled when its dialog closes.
+    private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private var serverItems: List<WatchedItem> = emptyList()
+    private var visibleCount = HISTORY_PAGE_SIZE
+    private val previewCache = mutableMapOf<String, MetaPreview>()
+
+    suspend fun refresh() = mutex.withLock {
+        if (pullFromServer()) publish()
+    }
+
+    /** Loads the whole history from the server; returns false (keeping what we had) when that fails. */
+    private suspend fun pullFromServer(): Boolean {
+        val pulled = try {
+            SupabaseWatchedSyncAdapter.pull(ProfileRepository.activeProfileId, PULL_PAGE_SIZE)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            return false
+        }
+        setServerItems(pulled)
+        return true
+    }
+
+    private fun setServerItems(items: List<WatchedItem>) {
+        serverItems = items
+        _titleKeys.value = titles().mapTo(mutableSetOf()) { watchedItemKey(type = it.type, id = it.id) }
+    }
+
+    /** One page of titles by offset, for callers that page themselves (collection folders). */
+    suspend fun page(skip: Int, limit: Int = HISTORY_PAGE_SIZE): CatalogPage = mutex.withLock {
+        if (skip == 0 && !pullFromServer() && serverItems.isEmpty()) error("Watch history could not be loaded")
+        val titles = titles()
+        val slice = titles.drop(skip).take(limit)
+        resolvePreviews(slice)
+        CatalogPage(
+            items = slice.map(::preview),
+            rawItemCount = slice.size,
+            nextSkip = (skip + slice.size).takeIf { it < titles.size },
+        )
+    }
+
+    fun loadMore() {
+        scope.launch {
+            mutex.withLock {
+                if (!_hasMore.value) return@withLock
+                visibleCount += HISTORY_PAGE_SIZE
+                publish()
+            }
+        }
+    }
+
+    fun requestRemove(meta: MetaPreview) {
+        scope.launch { remove(meta) }
+    }
+
+    /** Removes the title and all its watched episodes from the server history. */
+    private suspend fun remove(meta: MetaPreview) = mutex.withLock {
+        val aliases = watchedItemTypeAliases(meta.type)
+        val matches = serverItems.filter { it.id == meta.id && it.type in aliases }
+        if (matches.isEmpty()) return@withLock
+        try {
+            SupabaseWatchedSyncAdapter.delete(ProfileRepository.activeProfileId, matches)
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            return@withLock
+        }
+        WatchedRepository.unmarkWatchedLocally(matches)
+        setServerItems(serverItems - matches.toSet())
+        _removed.emit(meta)
+        publish()
+    }
+
+    private suspend fun publish() {
+        val titles = titles()
+        val shown = titles.take(visibleCount)
+        _hasMore.value = titles.size > shown.size
+        _items.value = shown.map(::preview)
+        if (resolvePreviews(shown)) _items.value = shown.map(::preview)
+    }
+
+    /** One entry per title, newest first. */
+    private fun titles(): List<WatchedItem> =
+        serverItems.sortedByDescending { it.markedAtEpochMs }
+            .distinctBy { watchedItemKey(type = it.type, id = it.id) }
+
+    /** Looks up artwork for titles not seen before; returns whether anything new was found. */
+    private suspend fun resolvePreviews(shown: List<WatchedItem>): Boolean {
+        val missing = shown.filter { it.cacheKey() !in previewCache }
+        if (missing.isEmpty()) return false
+        // The server stores no artwork, so look each new title up once, a few at a time.
+        val found = coroutineScope {
+            missing.map { item ->
+                async { posterLookups.withPermit { MetaDetailsRepository.fetch(item.type, item.id)?.let { item to it } } }
+            }.awaitAll()
+        }.filterNotNull()
+        found.forEach { (item, meta) ->
+            previewCache[item.cacheKey()] = MetaPreview(
+                id = item.id,
+                type = item.type,
+                name = meta.name.ifBlank { item.name },
+                poster = meta.poster,
+                releaseInfo = meta.releaseInfo,
+            )
+        }
+        return found.isNotEmpty()
+    }
+
+    private fun preview(item: WatchedItem): MetaPreview =
+        previewCache[item.cacheKey()] ?: MetaPreview(
+            id = item.id,
+            type = item.type,
+            name = item.name,
+            poster = item.poster,
+            releaseInfo = item.releaseInfo,
+        )
+
+    private fun WatchedItem.cacheKey() = "$type:$id"
+}
+
+/** Whether the title is in the Nuvio watch history (movie/series type aliases are treated alike). */
+fun Set<String>.containsWatchHistoryTitle(type: String, id: String): Boolean =
+    watchedItemKeys(type = type, id = id).any { it in this }

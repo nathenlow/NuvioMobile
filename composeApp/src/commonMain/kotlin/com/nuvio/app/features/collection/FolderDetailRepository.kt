@@ -13,6 +13,11 @@ import com.nuvio.app.core.poster.withCustomPosterUrls
 import com.nuvio.app.core.i18n.localizedMediaTypeLabel
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.HomeCatalogSection
+import com.nuvio.app.features.watched.WATCH_HISTORY_SOURCE_CATALOG_ID
+import com.nuvio.app.features.watched.WATCH_HISTORY_SOURCE_TYPE
+import com.nuvio.app.features.watched.WatchHistoryRepository
+import com.nuvio.app.features.watched.isWatchHistory
+import com.nuvio.app.features.watched.watchHistoryTitle
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.filterReleasedItems
 import com.nuvio.app.features.home.stableKey
@@ -103,6 +108,25 @@ object FolderDetailRepository {
     private var activeFolderId: String? = null
     private var activeShowCatalogType: Boolean? = null
 
+    init {
+        scope.launch { WatchHistoryRepository.removed.collect(::dropFromWatchHistoryTabs) }
+    }
+
+    /** A title was removed from the watch history: drop it from any open history tab. */
+    private fun dropFromWatchHistoryTabs(removed: MetaPreview) {
+        _uiState.update { current ->
+            current.copy(
+                tabs = current.tabs.map { tab ->
+                    if (tab.source?.isWatchHistory() != true) return@map tab
+                    val kept = tab.items.filterNot { it.stableKey() == removed.stableKey() }
+                    // Later pages start one title earlier now.
+                    tab.copy(items = kept, nextSkip = tab.nextSkip?.let { it - (tab.items.size - kept.size) })
+                },
+            )
+        }
+        rebuildAllTab()
+    }
+
     fun initialize(collectionId: String, folderId: String) {
         val current = _uiState.value
         val showCatalogType = HomeCatalogSettingsRepository.snapshot().showCatalogType
@@ -191,6 +215,18 @@ object FolderDetailRepository {
                             isLoading = true,
                         ),
                     )
+                } else if (source.isWatchHistory()) {
+                    add(
+                        FolderTab(
+                            label = watchHistoryTitle(),
+                            source = source,
+                            sourceKey = source.catalogRouteKey(),
+                            type = WATCH_HISTORY_SOURCE_TYPE,
+                            catalogId = WATCH_HISTORY_SOURCE_CATALOG_ID,
+                            supportsPagination = true,
+                            isLoading = true,
+                        ),
+                    )
                 } else {
                     val catalogSource = source.addonCatalogSource() ?: return@forEachIndexed
                     val resolvedCatalog = addons.findCollectionCatalog(catalogSource)
@@ -238,7 +274,7 @@ object FolderDetailRepository {
             val tabIndex = if (showAll) sourceIndex + 1 else sourceIndex
             val catalogSource = source.addonCatalogSource()
             val resolvedCatalog = catalogSource?.let { addons.findCollectionCatalog(it) }
-            if (!source.isTmdb && !source.isTrakt && resolvedCatalog == null) {
+            if (!source.isTmdb && !source.isTrakt && !source.isWatchHistory() && resolvedCatalog == null) {
                 updateTab(tabIndex) {
                     it.copy(
                         isLoading = false,
@@ -310,6 +346,7 @@ object FolderDetailRepository {
         if (
             currentSource?.isTmdb != true &&
             currentSource?.isTrakt != true &&
+            currentSource?.isWatchHistory() != true &&
             currentTab.manifestUrl == null
         ) return
 
@@ -345,6 +382,8 @@ object FolderDetailRepository {
                         source = source,
                         page = if (reset) 1 else requestedSkip,
                     )
+
+                    source?.isWatchHistory() == true -> WatchHistoryRepository.page(skip = requestedSkip)
 
                     else -> fetchCatalogPage(
                         manifestUrl = requireNotNull(currentTab.manifestUrl),
@@ -447,7 +486,9 @@ object FolderDetailRepository {
 
         return current.tabs.filter { !it.isAllTab && it.items.isNotEmpty() }.mapNotNull { tab ->
             val directSource = tab.source?.let { it.isTmdb || it.isTrakt } == true
-            val target = if (directSource) {
+            val target = if (tab.source?.isWatchHistory() == true) {
+                CatalogTarget.WatchHistory
+            } else if (directSource) {
                 val sourceKey = tab.sourceKey ?: return@mapNotNull null
                 CatalogTarget.CollectionSource(
                     collectionId = collectionId,

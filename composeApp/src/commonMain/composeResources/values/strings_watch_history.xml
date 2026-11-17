@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="watch_history_title">Watch history</string>
+    <string name="watch_history_source">Nuvio account history. Needs Nuvio sync as your watch data source.</string>
+    <string name="watch_history_source_group">Nuvio</string>
+    <string name="watch_history_remove_action">Remove from watch history</string>
+</resources>

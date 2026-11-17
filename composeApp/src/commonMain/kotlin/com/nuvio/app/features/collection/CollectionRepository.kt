@@ -4,6 +4,7 @@ import co.touchlab.kermit.Logger
 import com.nuvio.app.features.addons.AddonRepository
 import com.nuvio.app.features.addons.ManagedAddon
 import com.nuvio.app.features.addons.enabledAddons
+import com.nuvio.app.features.watched.watchHistoryAvailableCatalog
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.SharedFlow
@@ -199,7 +200,7 @@ object CollectionRepository {
                         genreRequired = genreExtra?.isRequired == true,
                     )
                 }
-        }
+        } + watchHistoryAvailableCatalog()
     }
 
     internal fun applyFromRemote(collections: List<Collection>, rawJson: JsonElement) {

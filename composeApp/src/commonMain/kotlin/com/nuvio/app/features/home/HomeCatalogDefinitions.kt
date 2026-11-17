@@ -7,6 +7,7 @@ import com.nuvio.app.features.addons.ManagedAddon
 import com.nuvio.app.features.addons.enabledAddons
 import com.nuvio.app.features.catalog.supportsPagination
 import com.nuvio.app.features.servers.ServerCatalog
+import com.nuvio.app.features.watched.watchHistoryDefinition
 import kotlinx.coroutines.runBlocking
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.home_catalog_default_title
@@ -68,7 +69,7 @@ fun buildHomeCatalogDefinitions(addons: List<ManagedAddon>): List<HomeCatalogDef
                     descriptorSignature = buildHomeCatalogDescriptorSignature(addon, manifest, catalog),
                 )
             }
-    }.distinctBy(HomeCatalogDefinition::key) + ServerCatalog.homeDefinitions()
+    }.distinctBy(HomeCatalogDefinition::key) + ServerCatalog.homeDefinitions() + watchHistoryDefinition()
 
 private fun buildHomeCatalogDescriptorSignature(
     addon: ManagedAddon,

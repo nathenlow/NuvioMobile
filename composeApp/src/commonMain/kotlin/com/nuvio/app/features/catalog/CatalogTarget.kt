@@ -23,6 +23,12 @@ sealed interface CatalogTarget {
         override val supportsPagination: Boolean = false
     }
 
+    /** The watch history stored on the Nuvio server (the "Watch history" Home catalog). */
+    data object WatchHistory : CatalogTarget {
+        override val contentType: String = "movie"
+        override val supportsPagination: Boolean = false
+    }
+
     data class Server(
         val connectionId: String,
         val libraryId: String?,
