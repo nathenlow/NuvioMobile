@@ -20,6 +20,7 @@ import androidx.compose.material.icons.rounded.Delete
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material.icons.rounded.FileDownload
 import androidx.compose.material.icons.rounded.Share
+import androidx.compose.material.icons.rounded.Tune
 import androidx.compose.material.icons.rounded.Visibility
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -83,6 +84,7 @@ fun DownloadProfilesSheet(onDismiss: () -> Unit) {
     val activeId by DownloadProfilesRepository.activeId.collectAsStateWithLifecycle()
     var editingId by remember { mutableStateOf<String?>(null) }
     var showImport by remember { mutableStateOf(false) }
+    var showMarkers by remember { mutableStateOf(false) }
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
     val dismiss: () -> Unit = {
@@ -94,6 +96,8 @@ fun DownloadProfilesSheet(onDismiss: () -> Unit) {
         val editingProfile = editingId?.let { id -> profiles.firstOrNull { it.id == id } }
         if (editingProfile != null) {
             DownloadProfileEditorContent(profile = editingProfile, onBack = { editingId = null })
+        } else if (showMarkers) {
+            StreamMarkersContent(onBack = { showMarkers = false })
         } else if (showImport) {
             ImportProfileDialog(
                 onDismiss = { showImport = false },
@@ -193,6 +197,17 @@ fun DownloadProfilesSheet(onDismiss: () -> Unit) {
                     title = stringResource(Res.string.downloads_profile_import),
                     onClick = { showImport = true },
                 )
+                NuvioBottomSheetActionRow(
+                    icon = Icons.Rounded.Tune,
+                    title = stringResource(Res.string.downloads_markers_row),
+                    onClick = { showMarkers = true },
+                )
+                Text(
+                    text = stringResource(Res.string.downloads_markers_row_summary),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.padding(start = 20.dp, end = 20.dp, bottom = 8.dp),
+                )
             }
         }
     }
@@ -235,4 +250,135 @@ private fun ImportProfileDialog(onDismiss: () -> Unit, onImported: (DownloadProf
             TextButton(onClick = onDismiss) { Text(stringResource(Res.string.downloads_dialog_cancel)) }
         },
     )
+}
+
+@Composable
+private fun MarkerMeaning.label(): String = when (this) {
+    MarkerMeaning.Cached -> stringResource(Res.string.downloads_condition_cached_yes)
+    MarkerMeaning.NotCached -> stringResource(Res.string.downloads_condition_cached_no)
+    MarkerMeaning.Debrid -> stringResource(Res.string.downloads_condition_source_debrid)
+    MarkerMeaning.Usenet -> stringResource(Res.string.downloads_condition_source_usenet)
+    MarkerMeaning.Http -> stringResource(Res.string.downloads_condition_source_http)
+    MarkerMeaning.Torrent -> stringResource(Res.string.downloads_condition_source_torrent)
+}
+
+/** Paste the addon's formatter templates; the symbols found in them become markers for the profiles. */
+@Composable
+private fun StreamMarkersContent(onBack: () -> Unit) {
+    val saved by DownloadProfilesRepository.format.collectAsStateWithLifecycle()
+    var nameTemplate by remember { mutableStateOf(saved.nameTemplate) }
+    var descriptionTemplate by remember { mutableStateOf(saved.descriptionTemplate) }
+    // Markers found in the saved templates but left out when saved start switched off.
+    var disabled by remember {
+        mutableStateOf(
+            if (saved.markers.isEmpty()) {
+                emptySet()
+            } else {
+                (AioFormatterParser.parse(saved.nameTemplate) + AioFormatterParser.parse(saved.descriptionTemplate))
+                    .filter { it !in saved.markers }.toSet()
+            },
+        )
+    }
+    var sample by remember { mutableStateOf("") }
+    val found = remember(nameTemplate, descriptionTemplate) {
+        (AioFormatterParser.parse(nameTemplate) + AioFormatterParser.parse(descriptionTemplate)).distinct()
+    }
+    val active = found.filter { it !in disabled }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .verticalScroll(rememberScrollState())
+            .padding(horizontal = 20.dp)
+            .padding(bottom = nuvioSafeBottomPadding(16.dp)),
+        verticalArrangement = Arrangement.spacedBy(12.dp),
+    ) {
+        Row(verticalAlignment = Alignment.CenterVertically) {
+            IconButton(onClick = onBack) {
+                Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = null)
+            }
+            Text(
+                text = stringResource(Res.string.downloads_markers_title),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        Text(
+            text = stringResource(Res.string.downloads_markers_description),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        OutlinedTextField(
+            value = nameTemplate,
+            onValueChange = { nameTemplate = it },
+            label = { Text(stringResource(Res.string.downloads_markers_name_template)) },
+            minLines = 3,
+            maxLines = 6,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        OutlinedTextField(
+            value = descriptionTemplate,
+            onValueChange = { descriptionTemplate = it },
+            label = { Text(stringResource(Res.string.downloads_markers_description_template)) },
+            minLines = 3,
+            maxLines = 6,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            text = stringResource(Res.string.downloads_markers_found),
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+        )
+        if (found.isEmpty()) {
+            Text(
+                text = stringResource(Res.string.downloads_markers_none),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        found.forEach { marker ->
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = marker.text,
+                    style = MaterialTheme.typography.titleMedium,
+                    modifier = Modifier.padding(end = 12.dp),
+                )
+                Text(
+                    text = marker.meaning.label(),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(
+                    checked = marker !in disabled,
+                    onCheckedChange = { on -> disabled = if (on) disabled - marker else disabled + marker },
+                )
+            }
+        }
+        OutlinedTextField(
+            value = sample,
+            onValueChange = { sample = it },
+            label = { Text(stringResource(Res.string.downloads_markers_try)) },
+            placeholder = { Text(stringResource(Res.string.downloads_markers_try_hint)) },
+            modifier = Modifier.fillMaxWidth(),
+        )
+        if (sample.isNotBlank()) {
+            val meanings = active.filter { sample.contains(it.text, ignoreCase = true) }.map { it.meaning }.distinct()
+            Text(
+                text = if (meanings.isEmpty()) {
+                    stringResource(Res.string.downloads_markers_try_nothing)
+                } else {
+                    stringResource(Res.string.downloads_markers_try_result, meanings.map { it.label() }.joinToString())
+                },
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        OutlinedButton(
+            onClick = {
+                DownloadProfilesRepository.saveFormat(StreamFormatSetup(nameTemplate, descriptionTemplate, active))
+                onBack()
+            },
+            modifier = Modifier.fillMaxWidth(),
+        ) { Text(stringResource(Res.string.downloads_markers_save)) }
+    }
 }

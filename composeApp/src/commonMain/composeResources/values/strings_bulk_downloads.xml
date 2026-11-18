@@ -199,4 +199,17 @@
     <string name="downloads_condition_summary_language">Language %1$s</string>
     <string name="downloads_profile_then">Then: %1$s</string>
     <string name="downloads_profile_done">Done</string>
+    <string name="downloads_markers_row">Stream format markers</string>
+    <string name="downloads_markers_row_summary">Teach the app what your addon's symbols mean, such as ⏳ for not cached</string>
+    <string name="downloads_markers_title">Stream format markers</string>
+    <string name="downloads_markers_description">Paste the name and description templates from your addon's custom formatter (AIOStreams). The app reads what each symbol means, so Cached and Source conditions work on its streams.</string>
+    <string name="downloads_markers_name_template">Name template</string>
+    <string name="downloads_markers_description_template">Description template</string>
+    <string name="downloads_markers_found">Found in the templates</string>
+    <string name="downloads_markers_none">No markers found yet. Only conditionals on service.cached and stream.type are read.</string>
+    <string name="downloads_markers_save">Save markers</string>
+    <string name="downloads_markers_try">Check a stream name</string>
+    <string name="downloads_markers_try_hint">Paste a stream name or description</string>
+    <string name="downloads_markers_try_result">Reads as: %1$s</string>
+    <string name="downloads_markers_try_nothing">No marker found in this text</string>
 </resources>

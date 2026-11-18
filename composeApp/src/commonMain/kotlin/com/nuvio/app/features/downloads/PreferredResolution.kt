@@ -44,6 +44,8 @@ internal fun StreamItem.resolutionHeight(): Int? {
  * already resolved. A torrent that the debrid service does not have yet is not.
  */
 internal fun StreamItem.isCachedForDownload(): Boolean {
+    // What the addon's own formatting says (for example "⏳") wins over the guesses below.
+    markerMeanings(DownloadProfilesRepository.markers()).cachedByMarkers()?.let { return it }
     if (debridCacheStatus?.state == StreamDebridCacheState.NOT_CACHED) return false
     if (isCachedDebridTorrentStream || debridCacheStatus?.state == StreamDebridCacheState.CACHED) return true
     if (clientResolve?.isCached == true) return true

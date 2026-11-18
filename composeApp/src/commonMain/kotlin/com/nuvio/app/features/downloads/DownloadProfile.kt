@@ -84,6 +84,7 @@ data class ProfileCondition(
 
 /** What kind of link the stream is. Usenet is read from the type the addon reports. */
 internal fun StreamItem.profileSource(): ProfileSource {
+    markerMeanings(DownloadProfilesRepository.markers()).sourceByMarkers()?.let { return it }
     val reported = streamType ?: clientResolve?.type
     if (reported.equals("usenet", ignoreCase = true)) return ProfileSource.Usenet
     if (
