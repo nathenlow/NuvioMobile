@@ -68,6 +68,8 @@ data class BulkEpisodeState(
     /** Every group the last search returned. Kept so switching streams needs no new request. */
     val groups: List<AddonStreamGroup> = emptyList(),
     val selected: StreamItem? = null,
+    /** True when the user picked [selected] themselves; it then survives a reload and the profile. */
+    val manual: Boolean = false,
     /** Whether "Download" at the top will include this episode. */
     val included: Boolean = true,
 ) {
@@ -142,13 +144,16 @@ class BulkDownloadSession(val request: BulkDownloadRequest) {
                 val picked = autoSelect(groups)
                 update(videoId) { current ->
                     // Keep a stream the user picked by hand if it is still offered by this search.
+                    // Only a hand-picked one: an automatic pick is made again, so a profile edited since
+                    // (a new exclusion) applies on reload.
                     val keep = current.selected?.takeIf { previous ->
-                        groups.any { group -> previous in group.streams }
+                        current.manual && groups.any { group -> previous in group.streams }
                     }
                     val chosen = keep ?: picked
                     current.copy(
                         groups = groups,
                         selected = chosen,
+                        manual = keep != null,
                         status = if (chosen != null) BulkFetchStatus.Ready else BulkFetchStatus.NoStream,
                         included = if (chosen != null) current.included else false,
                     )
@@ -158,7 +163,7 @@ class BulkDownloadSession(val request: BulkDownloadRequest) {
     }
 
     fun select(videoId: String, stream: StreamItem) {
-        update(videoId) { it.copy(selected = stream, status = BulkFetchStatus.Ready) }
+        update(videoId) { it.copy(selected = stream, manual = true, status = BulkFetchStatus.Ready) }
     }
 
     fun setIncluded(videoId: String, included: Boolean) {
@@ -189,8 +194,31 @@ class BulkDownloadSession(val request: BulkDownloadRequest) {
                 ),
             )
         for (state in ordered) {
-            val stream = state.selected ?: continue
-            val playable = resolvePlayable(state, stream) ?: continue
+            var stream = state.selected ?: continue
+            // An automatic pick is checked against the profile as it is now, as it may have been edited.
+            if (!state.manual && stream.isExcludedByActiveProfile()) {
+                stream = autoSelect(state.groups) ?: continue
+            }
+            val tried = mutableSetOf<StreamItem>()
+            var resolvedStream: StreamItem? = null
+            // A stream the provider says is not cached is skipped and the next best one is tried, since
+            // the cache status an addon reports can be wrong or still unknown.
+            repeat(MAX_NOT_CACHED_RETRIES + 1) {
+                if (resolvedStream != null) return@repeat
+                when (val outcome = resolvePlayable(state, stream, toastNotCached = false)) {
+                    is Resolved.Playable -> resolvedStream = outcome.stream
+                    Resolved.NotCached -> {
+                        tried += stream
+                        stream = (if (state.manual) null else autoSelect(state.groups, skip = tried)) ?: return@repeat
+                    }
+                    Resolved.Failed -> return@repeat
+                }
+            }
+            val playable = resolvedStream ?: run {
+                NuvioToastController.show(DirectDebridPlayableResult.NotCached.toastMessage().orEmpty())
+                continue
+            }
+            if (stream != state.selected) update(state.ref.videoId) { it.copy(selected = stream) }
             val result = DownloadsRepository.enqueueFromStream(
                 contentType = request.metaType,
                 videoId = state.ref.videoId,
@@ -216,18 +244,28 @@ class BulkDownloadSession(val request: BulkDownloadRequest) {
         return queued
     }
 
-    private suspend fun resolvePlayable(state: BulkEpisodeState, stream: StreamItem): StreamItem? {
-        if (!DirectDebridPlaybackResolver.shouldResolveToPlayableStream(stream)) return stream
+    private sealed interface Resolved {
+        data class Playable(val stream: StreamItem) : Resolved
+        data object NotCached : Resolved
+        data object Failed : Resolved
+    }
+
+    private suspend fun resolvePlayable(state: BulkEpisodeState, stream: StreamItem, toastNotCached: Boolean = true): Resolved {
+        if (!DirectDebridPlaybackResolver.shouldResolveToPlayableStream(stream)) return Resolved.Playable(stream)
         val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
             stream = stream,
             season = state.ref.seasonNumber,
             episode = state.ref.episodeNumber,
         )
         return when (resolved) {
-            is DirectDebridPlayableResult.Success -> resolved.stream
+            is DirectDebridPlayableResult.Success -> Resolved.Playable(resolved.stream)
+            DirectDebridPlayableResult.NotCached -> {
+                if (toastNotCached) resolved.toastMessage()?.let { NuvioToastController.show(it) }
+                Resolved.NotCached
+            }
             else -> {
                 resolved.toastMessage()?.let { NuvioToastController.show(it) }
-                null
+                Resolved.Failed
             }
         }
     }
@@ -244,6 +282,7 @@ class BulkDownloadSession(val request: BulkDownloadRequest) {
 
     private companion object {
         const val MAX_PARALLEL_SEARCHES = 3
+        const val MAX_NOT_CACHED_RETRIES = 5
     }
 }
 
@@ -268,13 +307,13 @@ internal fun AddonStreamGroup.downloadableStreams(): List<StreamItem> =
  * Picks a stream the way auto play would, limited to streams that can be downloaded. A "manual" auto
  * play setting still gets a pick here, since the user can switch it afterwards.
  */
-internal fun autoSelect(groups: List<AddonStreamGroup>): StreamItem? {
+internal fun autoSelect(groups: List<AddonStreamGroup>, skip: Set<StreamItem> = emptySet()): StreamItem? {
     DownloadsRepository.ensureLoaded()
     val profile = DownloadProfilesRepository.active()
     val preferredHeight = DownloadsRepository.preferredResolution.value
     // The profile drops what it excludes, then its first matching rule picks. When no rule matches,
     // the addon ranking below decides among what is left.
-    val candidates = profile.applyExclusions(groups.flatMap { it.downloadableStreams() }, preferredHeight)
+    val candidates = profile.applyExclusions(groups.flatMap { it.downloadableStreams() }.filter { it !in skip }, preferredHeight)
     if (candidates.isEmpty()) return null
     profile.pickStream(candidates, preferredHeight)?.let { return it }
 
@@ -340,4 +379,12 @@ object BulkDownloadSessions {
     fun remove(id: Long) {
         sessions.remove(id)?.close()
     }
+}
+
+/** Whether the active download profile's exclusions remove this stream. */
+private fun StreamItem.isExcludedByActiveProfile(): Boolean {
+    DownloadsRepository.ensureLoaded()
+    return DownloadProfilesRepository.active()
+        .applyExclusions(listOf(this), DownloadsRepository.preferredResolution.value)
+        .isEmpty()
 }
