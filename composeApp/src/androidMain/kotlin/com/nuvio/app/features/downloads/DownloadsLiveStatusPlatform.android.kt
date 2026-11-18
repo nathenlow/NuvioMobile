@@ -17,282 +17,242 @@ import kotlinx.coroutines.runBlocking
 import nuvio.composeapp.generated.resources.*
 import org.jetbrains.compose.resources.getString
 
+/**
+ * One notification for the whole download queue, the way Aniyomi and Animetail do it: it shows the
+ * download that is running with its percent, and "Pause" pauses them all. Paused downloads become one
+ * "Downloads paused" notification with Resume and Cancel all. A failure is a separate notification on
+ * its own channel, and finished downloads leave nothing behind.
+ */
 internal actual object DownloadsLiveStatusPlatform {
-    private const val channelId = "downloads_live_status"
-    private const val notificationsPrefName = "nuvio_download_live_notifications"
-    private const val trackedDownloadIdsKey = "tracked_download_ids"
+    private const val progressChannelId = "downloads_live_status"
+    private const val errorChannelId = "downloads_errors"
+    private const val queueNotificationId = 4_410_001
+    private const val errorNotificationId = 4_410_002
+    private const val maxTitleLength = 30
 
     private var appContext: Context? = null
-    private val lastRenderStateById = mutableMapOf<String, RenderState>()
+    private var lastQueueState: String? = null
+    private val reportedFailures = mutableSetOf<String>()
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
-        ensureNotificationChannel()
+        ensureNotificationChannels()
     }
 
     actual fun onItemsChanged(items: List<DownloadItem>) {
-        val context = appContext ?: return
-        if (!canPostNotifications(context)) return
-
-        val manager = NotificationManagerCompat.from(context)
-        val trackedBefore = preferences(context)
-            .getStringSet(trackedDownloadIdsKey, emptySet())
-            .orEmpty()
-            .toMutableSet()
-
-        val activeItems = items.filter { item ->
-            item.status == DownloadStatus.Downloading ||
-                item.status == DownloadStatus.Paused ||
-                item.status == DownloadStatus.Failed
-        }
-        val managedIds = DownloadsPlatformDownloader.managedTransfers().map { it.item.id }.toSet()
-
-        val trackedNow = managedIds.toMutableSet()
-        activeItems.filterNot { it.id in managedIds }.forEach { item ->
-            val renderState = RenderState(
-                status = item.status,
-                progressPercent = progressPercent(item),
-                downloadedBucket = item.downloadedBytes / (512L * 1024L),
-                totalBytes = item.totalBytes,
-                errorMessage = item.errorMessage,
-            )
-
-            val existingState = lastRenderStateById[item.id]
-            if (existingState == renderState) {
-                trackedNow += item.id
-                return@forEach
-            }
-
-            manager.notify(notificationId(item.id), buildNotification(context, item))
-            lastRenderStateById[item.id] = renderState
-            trackedNow += item.id
-        }
-
-        val staleIds = trackedBefore - trackedNow
-        staleIds.forEach { downloadId ->
-            manager.cancel(notificationId(downloadId))
-            lastRenderStateById.remove(downloadId)
-        }
-
-        preferences(context)
-            .edit()
-            .putStringSet(trackedDownloadIdsKey, trackedNow)
-            .apply()
+        render(items, live = null)
     }
 
+    /** A transfer reported progress or changed state; [item] is the freshest copy of it. */
     internal fun notifyTransfer(item: DownloadItem) {
+        render(currentItems(item), live = item)
+    }
+
+    /** A transfer was removed from the scheduler. */
+    internal fun removeNotification(downloadId: String) {
+        render(currentItems(null).filterNot { it.id == downloadId }, live = null)
+    }
+
+    /** Every download shares the queue notification, so every transfer's foreground notice is the same one. */
+    @Suppress("UNUSED_PARAMETER")
+    internal fun notificationId(downloadId: String): Int = queueNotificationId
+
+    /** The notification a transfer starts its foreground job with. */
+    internal fun buildNotification(context: Context, item: DownloadItem): android.app.Notification {
+        val items = currentItems(item)
+        val downloading = items.filter { it.status == DownloadStatus.Downloading }
+        val shown = downloading.ifEmpty { listOf(item) }
+        return buildDownloading(context, shown, current = firstDownloading(shown))
+    }
+
+    // The app's list when it is loaded, otherwise the scheduler's own (the app may be closed).
+    private fun currentItems(overlay: DownloadItem?): List<DownloadItem> {
+        val repository = DownloadsRepository.uiState.value.items
+        val base = repository.ifEmpty { DownloadsPlatformDownloader.managedTransfers().map { it.item } }
+        if (overlay == null) return base
+        return if (base.any { it.id == overlay.id }) base.map { if (it.id == overlay.id) overlay else it } else base + overlay
+    }
+
+    private fun render(items: List<DownloadItem>, live: DownloadItem?) {
         val context = appContext ?: return
         if (!canPostNotifications(context)) return
         val manager = NotificationManagerCompat.from(context)
-        if (item.status == DownloadStatus.Completed) {
-            removeNotification(item.id)
+
+        reportFailures(context, manager, items, live)
+
+        val downloading = items.filter { it.status == DownloadStatus.Downloading }
+        val paused = items.filter { it.status == DownloadStatus.Paused }
+        when {
+            downloading.isNotEmpty() -> {
+                val current = firstDownloading(downloading)
+                val key = "d|${current.id}|${progressPercent(current)}|${downloading.size}"
+                if (key != lastQueueState) {
+                    lastQueueState = key
+                    manager.notify(queueNotificationId, buildDownloading(context, downloading, current))
+                }
+            }
+            paused.isNotEmpty() -> {
+                val key = "p|${paused.size}"
+                if (key != lastQueueState) {
+                    lastQueueState = key
+                    manager.notify(queueNotificationId, buildPaused(context, paused.size))
+                }
+            }
+            else -> {
+                lastQueueState = null
+                manager.cancel(queueNotificationId)
+            }
+        }
+    }
+
+    // Always the first of the queue, so the notification does not switch between concurrent downloads.
+    private fun firstDownloading(downloading: List<DownloadItem>): DownloadItem =
+        downloading.minWith(compareBy<DownloadItem>({ it.createdAtEpochMs }, { it.id }))
+
+    private fun buildDownloading(context: Context, downloading: List<DownloadItem>, current: DownloadItem): android.app.Notification {
+        val percent = progressPercent(current)
+        val progressText = if (percent <= 0) {
+            runBlocking { getString(Res.string.downloads_notification_downloading) }
         } else {
-            val active = item.status == DownloadStatus.Downloading
-            manager.cancel(notificationId(if (active) "inactive:${item.id}" else item.id))
-            manager.notify(notificationId(if (active) item.id else "inactive:${item.id}"), buildNotification(context, item))
+            runBlocking { getString(Res.string.downloads_notification_progress, percent) }
         }
+        val more = downloading.size - 1
+        val text = if (more > 0) runBlocking { getString(Res.string.downloads_notification_more, progressText, more) } else progressText
+        return NotificationCompat.Builder(context, progressChannelId)
+            .setSmallIcon(android.R.drawable.stat_sys_download)
+            .setContentTitle(chop(titleOf(current)))
+            .setContentText(text)
+            .setProgress(100, percent.coerceAtLeast(0), percent <= 0)
+            .setOngoing(true)
+            .setAutoCancel(false)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .setContentIntent(openDownloadsIntent(context))
+            .addAction(
+                android.R.drawable.ic_media_pause,
+                runBlocking { getString(Res.string.compose_action_pause) },
+                actionIntent(context, DownloadsNotificationActionReceiver.actionPauseAll),
+            )
+            .build()
     }
 
-    internal fun removeNotification(downloadId: String) {
-        val context = appContext ?: return
-        NotificationManagerCompat.from(context).apply {
-            cancel(notificationId(downloadId))
-            cancel(notificationId("inactive:$downloadId"))
-        }
+    private fun buildPaused(context: Context, count: Int): android.app.Notification =
+        NotificationCompat.Builder(context, progressChannelId)
+            .setSmallIcon(android.R.drawable.ic_media_pause)
+            .setContentTitle(runBlocking { getString(Res.string.downloads_notification_paused_title) })
+            .setContentText(runBlocking { getString(Res.string.downloads_notification_paused_text, count) })
+            .setProgress(0, 0, false)
+            .setOngoing(false)
+            .setAutoCancel(false)
+            .setOnlyAlertOnce(true)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
+            .setContentIntent(openDownloadsIntent(context))
+            .addAction(
+                android.R.drawable.ic_media_play,
+                runBlocking { getString(Res.string.action_resume) },
+                actionIntent(context, DownloadsNotificationActionReceiver.actionResumeAll),
+            )
+            .addAction(
+                android.R.drawable.ic_menu_close_clear_cancel,
+                runBlocking { getString(Res.string.downloads_notification_cancel_all) },
+                actionIntent(context, DownloadsNotificationActionReceiver.actionCancelAll),
+            )
+            .build()
+
+    /** A failure the user should see, kept apart from the progress so it is not overwritten by it. */
+    private fun reportFailures(context: Context, manager: NotificationManagerCompat, items: List<DownloadItem>, live: DownloadItem?) {
+        val failed = items.filter { it.status == DownloadStatus.Failed }
+        reportedFailures.retainAll(failed.map { it.id }.toSet())
+        // Only a failure that just happened, not the ones already in the list when the app opens.
+        val fresh = live?.takeIf { it.status == DownloadStatus.Failed && it.id !in reportedFailures } ?: return
+        reportedFailures += fresh.id
+        val many = failed.size > 1
+        manager.notify(
+            errorNotificationId,
+            NotificationCompat.Builder(context, errorChannelId)
+                .setSmallIcon(android.R.drawable.stat_notify_error)
+                .setContentTitle(
+                    if (many) runBlocking { getString(Res.string.downloads_notification_failed_title) } else chop(titleOf(fresh)),
+                )
+                .setContentText(
+                    if (many) {
+                        runBlocking { getString(Res.string.downloads_notification_failed_many, failed.size) }
+                    } else {
+                        fresh.errorMessage?.takeIf { it.isNotBlank() }
+                            ?: runBlocking { getString(Res.string.downloads_live_failed) }
+                    },
+                )
+                .setStyle(NotificationCompat.BigTextStyle().bigText(fresh.errorMessage.orEmpty()))
+                .setAutoCancel(true)
+                .setContentIntent(openDownloadsIntent(context))
+                .build(),
+        )
     }
 
-    internal fun buildNotification(context: Context, item: DownloadItem): android.app.Notification {
-        val subtitle = buildSubtitle(item)
+    private fun titleOf(item: DownloadItem): String =
+        item.displaySubtitle.takeIf { it.isNotBlank() }?.let { "${item.title} - $it" } ?: item.title
+
+    private fun chop(text: String): String =
+        if (text.length <= maxTitleLength) text else text.take(maxTitleLength - 1).trimEnd() + "…"
+
+    private fun progressPercent(item: DownloadItem): Int {
+        val total = item.totalBytes?.takeIf { it > 0L } ?: return -1
+        return ((item.downloadedBytes.toDouble() / total.toDouble()) * 100.0).toInt().coerceIn(0, 100)
+    }
+
+    private fun openDownloadsIntent(context: Context): PendingIntent {
         val launchIntent = Intent().apply {
             component = AppIconPlatform.currentLauncherComponent(context)
             action = Intent.ACTION_VIEW
             data = android.net.Uri.parse(buildDownloadsDeepLinkUrl())
-            flags = Intent.FLAG_ACTIVITY_NEW_TASK or
-                Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                Intent.FLAG_ACTIVITY_SINGLE_TOP
+            flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP or Intent.FLAG_ACTIVITY_SINGLE_TOP
         }
-        val launchPendingIntent = PendingIntent.getActivity(
+        return PendingIntent.getActivity(
             context,
-            notificationId(item.id),
+            queueNotificationId,
             launchIntent,
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-
-        val notificationBuilder = NotificationCompat.Builder(context, channelId)
-            .setSmallIcon(com.nuvio.app.R.drawable.ic_notification_small)
-            .setContentTitle(item.title)
-            .setContentText(subtitle)
-            .setStyle(NotificationCompat.BigTextStyle().bigText(subtitle))
-            .setOnlyAlertOnce(true)
-            .setContentIntent(launchPendingIntent)
-            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
-
-        when (item.status) {
-            DownloadStatus.Downloading -> {
-                notificationBuilder
-                    .setOngoing(true)
-                    .setPriority(NotificationCompat.PRIORITY_LOW)
-                    .addAction(
-                        0,
-                        runBlocking { getString(Res.string.compose_action_pause) },
-                        buildActionPendingIntent(
-                            context = context,
-                            action = DownloadsNotificationActionReceiver.actionPause,
-                            downloadId = item.id,
-                            fileName = item.fileName,
-                        ),
-                    )
-
-                val progress = progressPercent(item)
-                if (progress >= 0) {
-                    notificationBuilder.setProgress(100, progress, false)
-                } else {
-                    notificationBuilder.setProgress(100, 0, true)
-                }
-            }
-
-            DownloadStatus.Paused,
-            DownloadStatus.Failed,
-            DownloadStatus.Completed,
-            -> {
-                notificationBuilder
-                    .setOngoing(false)
-                    .setAutoCancel(false)
-                    .setPriority(
-                        if (item.status == DownloadStatus.Failed) {
-                            NotificationCompat.PRIORITY_DEFAULT
-                        } else {
-                            NotificationCompat.PRIORITY_LOW
-                        },
-                    )
-                    .setProgress(0, 0, false)
-                    .addAction(
-                        0,
-                        runBlocking { getString(Res.string.action_resume) },
-                        buildActionPendingIntent(
-                            context = context,
-                            action = DownloadsNotificationActionReceiver.actionResume,
-                            downloadId = item.id,
-                            fileName = item.fileName,
-                        ),
-                    )
-            }
-        }
-
-        return notificationBuilder.build()
     }
 
-    private fun buildSubtitle(item: DownloadItem): String {
-        val detail = item.displaySubtitle
-        return when (item.status) {
-            DownloadStatus.Downloading -> {
-                val downloaded = formatBytes(item.downloadedBytes)
-                val total = item.totalBytes?.let(::formatBytes)
-                if (total != null) {
-                    runBlocking { getString(Res.string.downloads_live_downloading_with_total, detail, downloaded, total) }
-                } else {
-                    runBlocking { getString(Res.string.downloads_live_downloading, detail, downloaded) }
-                }
-            }
-
-            DownloadStatus.Paused -> runBlocking { getString(Res.string.downloads_live_paused, detail) }
-            DownloadStatus.Failed -> item.errorMessage?.takeIf { it.isNotBlank() } ?: runBlocking { getString(Res.string.downloads_live_failed) }
-            DownloadStatus.Completed -> runBlocking { getString(Res.string.downloads_live_completed) }
-        }
-    }
-
-    private fun formatBytes(bytes: Long): String {
-        val safe = bytes.coerceAtLeast(0L).toDouble()
-        val units = runBlocking {
-            arrayOf(
-                getString(Res.string.unit_bytes_b),
-                getString(Res.string.unit_bytes_kb),
-                getString(Res.string.unit_bytes_mb),
-                getString(Res.string.unit_bytes_gb),
-                getString(Res.string.unit_bytes_tb),
-            )
-        }
-        var value = safe
-        var unitIndex = 0
-        while (value >= 1024.0 && unitIndex < units.lastIndex) {
-            value /= 1024.0
-            unitIndex += 1
-        }
-        return if (unitIndex == 0) {
-            "${value.toLong()} ${units[unitIndex]}"
-        } else {
-            "${"%.1f".format(value)} ${units[unitIndex]}"
-        }
-    }
-
-    private fun progressPercent(item: DownloadItem): Int {
-        val total = item.totalBytes?.takeIf { it > 0L } ?: return -1
-        return ((item.downloadedBytes.toDouble() / total.toDouble()) * 100.0)
-            .toInt()
-            .coerceIn(0, 100)
-    }
-
-    private fun buildActionPendingIntent(
-        context: Context,
-        action: String,
-        downloadId: String,
-        fileName: String,
-    ): PendingIntent {
-        val intent = Intent(context, DownloadsNotificationActionReceiver::class.java).apply {
-            this.action = action
-            putExtra(DownloadsNotificationActionReceiver.extraDownloadId, downloadId)
-            putExtra(AndroidDownloadScheduler.FILE_NAME, fileName)
-        }
-        return PendingIntent.getBroadcast(
+    private fun actionIntent(context: Context, action: String): PendingIntent =
+        PendingIntent.getBroadcast(
             context,
-            notificationId("$action:$downloadId"),
-            intent,
+            action.hashCode() and Int.MAX_VALUE,
+            Intent(context, DownloadsNotificationActionReceiver::class.java).apply { this.action = action },
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
         )
-    }
 
-    private fun ensureNotificationChannel() {
+    private fun ensureNotificationChannels() {
         val context = appContext ?: return
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.O) return
-
-        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager
-            ?: return
-        if (manager.getNotificationChannel(channelId) != null) return
-
-        manager.createNotificationChannel(
-            NotificationChannel(
-                channelId,
-                runBlocking { getString(Res.string.downloads_channel_name) },
-                NotificationManager.IMPORTANCE_LOW,
-            ).apply {
-                description = runBlocking { getString(Res.string.downloads_channel_description) }
-            },
-        )
+        val manager = context.getSystemService(Context.NOTIFICATION_SERVICE) as? NotificationManager ?: return
+        if (manager.getNotificationChannel(progressChannelId) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    progressChannelId,
+                    runBlocking { getString(Res.string.downloads_channel_name) },
+                    NotificationManager.IMPORTANCE_LOW,
+                ).apply { description = runBlocking { getString(Res.string.downloads_channel_description) } },
+            )
+        }
+        if (manager.getNotificationChannel(errorChannelId) == null) {
+            manager.createNotificationChannel(
+                NotificationChannel(
+                    errorChannelId,
+                    runBlocking { getString(Res.string.downloads_error_channel_name) },
+                    NotificationManager.IMPORTANCE_DEFAULT,
+                ),
+            )
+        }
     }
 
     private fun canPostNotifications(context: Context): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            val permissionState = ContextCompat.checkSelfPermission(
-                context,
-                Manifest.permission.POST_NOTIFICATIONS,
-            )
-            if (permissionState != PackageManager.PERMISSION_GRANTED) {
-                return false
-            }
+            val permissionState = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
+            if (permissionState != PackageManager.PERMISSION_GRANTED) return false
         }
         return NotificationManagerCompat.from(context).areNotificationsEnabled()
     }
-
-    private fun preferences(context: Context) =
-        context.getSharedPreferences(notificationsPrefName, Context.MODE_PRIVATE)
-
-    internal fun notificationId(downloadId: String): Int = (downloadId.hashCode() and Int.MAX_VALUE).coerceAtLeast(1)
-
-    private data class RenderState(
-        val status: DownloadStatus,
-        val progressPercent: Int,
-        val downloadedBucket: Long,
-        val totalBytes: Long?,
-        val errorMessage: String?,
-    )
 }

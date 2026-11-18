@@ -54,6 +54,10 @@ internal actual object DownloadsLiveStatusPlatform {
             )
             .firstOrNull()
 
+        // The other downloads still to come, shown as "2 more". A failed one is not coming.
+        val waiting = items.count { it.status == DownloadStatus.Downloading || it.status == DownloadStatus.Paused }
+        val moreCount = (waiting - if (primary?.status == DownloadStatus.Failed) 0 else 1).coerceAtLeast(0)
+
         val payload = primary?.let { item ->
             json.encodeToString(
                 DownloadsLiveStatusPayload(
@@ -62,6 +66,7 @@ internal actual object DownloadsLiveStatusPlatform {
                     subtitle = subtitleFor(item),
                     status = item.status.name,
                     totalBytes = item.totalBytes?.takeIf { it > 0L },
+                    moreCount = moreCount,
                 ),
             )
         }
@@ -101,4 +106,5 @@ private data class DownloadsLiveStatusPayload(
     val subtitle: String,
     val status: String,
     val totalBytes: Long? = null,
+    val moreCount: Int = 0,
 )
