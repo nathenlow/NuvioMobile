@@ -18,6 +18,7 @@ object DownloadProfilesRepository {
     private data class Stored(
         val activeId: String = PROFILE_ID_CACHED,
         val profiles: List<DownloadProfile> = emptyList(),
+        val format: StreamFormatSetup = StreamFormatSetup(),
     )
 
     // Names are set by the screens, which can read the string resources.
@@ -30,6 +31,10 @@ object DownloadProfilesRepository {
 
     private val _activeId = MutableStateFlow(PROFILE_ID_CACHED)
     val activeId: StateFlow<String> = _activeId.asStateFlow()
+
+    private val _format = MutableStateFlow(StreamFormatSetup())
+    /** The addon's name and description templates and the markers read from them. */
+    val format: StateFlow<StreamFormatSetup> = _format.asStateFlow()
 
     private var loaded = false
 
@@ -60,7 +65,20 @@ object DownloadProfilesRepository {
         val all = listOf(cachedDebridProfile(cachedName), httpProfile(httpName)) + custom
         _profiles.value = all
         _activeId.value = stored.activeId.takeIf { id -> all.any { it.id == id } } ?: PROFILE_ID_CACHED
+        _format.value = stored.format
         loaded = true
+    }
+
+    /** The markers that tell cached, source and the like from a stream's text. */
+    fun markers(): List<StreamMarker> {
+        ensureLoaded()
+        return _format.value.markers
+    }
+
+    fun saveFormat(setup: StreamFormatSetup) {
+        ensureLoaded()
+        _format.value = setup
+        persist()
     }
 
     /** The profile bulk download uses now. */
@@ -134,6 +152,7 @@ object DownloadProfilesRepository {
                 Stored(
                     activeId = _activeId.value,
                     profiles = _profiles.value.filter { !it.builtIn },
+                    format = _format.value,
                 ),
             ),
         )
