@@ -11,6 +11,26 @@ struct DownloadsLiveActivityAttributes: ActivityAttributes {
         /// an app in the background may update an activity, but not start a new one.
         let title: String
         let subtitle: String
+        /// The other downloads waiting, shown as "2 more".
+        let moreCount: Int
+
+        init(status: String, sizeText: String, title: String, subtitle: String, moreCount: Int) {
+            self.status = status
+            self.sizeText = sizeText
+            self.title = title
+            self.subtitle = subtitle
+            self.moreCount = moreCount
+        }
+
+        // An activity started by an earlier version has no count.
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            status = try values.decode(String.self, forKey: .status)
+            sizeText = try values.decode(String.self, forKey: .sizeText)
+            title = try values.decode(String.self, forKey: .title)
+            subtitle = try values.decode(String.self, forKey: .subtitle)
+            moreCount = try values.decodeIfPresent(Int.self, forKey: .moreCount) ?? 0
+        }
     }
 
     let downloadId: String
@@ -34,7 +54,7 @@ struct DownloadsLiveActivityWidget: Widget {
         } dynamicIsland: { context in
             return DynamicIsland {
                 DynamicIslandExpandedRegion(.leading) {
-                    Label(statusLabel(context.state.status), systemImage: statusIcon(context.state.status))
+                    Label(statusText(context.state), systemImage: statusIcon(context.state.status))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.88))
                         .lineLimit(1)
@@ -75,6 +95,12 @@ struct DownloadsLiveActivityWidget: Widget {
             .widgetURL(downloadsUrl)
             .keylineTint(appBlue)
         }
+    }
+
+    /// "Downloading • 2 more": the state of the first download and how many others wait.
+    private func statusText(_ state: DownloadsLiveActivityAttributes.ContentState) -> String {
+        let label = statusLabel(state.status)
+        return state.moreCount > 0 ? "\(label) • \(state.moreCount) more" : label
     }
 
     private func statusLabel(_ status: String) -> String {
@@ -121,7 +147,7 @@ private struct DownloadActivityLockScreenView: View {
                 }
 
                 HStack {
-                    Label(statusLabel(context.state.status), systemImage: statusIcon(context.state.status))
+                    Label(statusText(context.state), systemImage: statusIcon(context.state.status))
                         .font(.caption.weight(.semibold))
                         .foregroundStyle(.white.opacity(0.9))
                     Spacer()
@@ -144,6 +170,12 @@ private struct DownloadActivityLockScreenView: View {
         )
         .activityBackgroundTint(.clear)
         .activitySystemActionForegroundColor(.white)
+    }
+
+    /// "Downloading • 2 more": the state of the first download and how many others wait.
+    private func statusText(_ state: DownloadsLiveActivityAttributes.ContentState) -> String {
+        let label = statusLabel(state.status)
+        return state.moreCount > 0 ? "\(label) • \(state.moreCount) more" : label
     }
 
     private func statusLabel(_ status: String) -> String {

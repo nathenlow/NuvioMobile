@@ -62,7 +62,8 @@ final class DownloadsLiveActivityManager {
             status: payload.status,
             sizeText: sizeText(payload),
             title: payload.title,
-            subtitle: payload.subtitle
+            subtitle: payload.subtitle,
+            moreCount: payload.moreCount ?? 0
         )
 
         // One activity for the whole queue: it is updated in place, which works with the app in the
@@ -108,6 +109,26 @@ struct DownloadsLiveActivityAttributes: ActivityAttributes {
         let sizeText: String
         let title: String
         let subtitle: String
+        /// The other downloads waiting, shown as "2 more".
+        let moreCount: Int
+
+        init(status: String, sizeText: String, title: String, subtitle: String, moreCount: Int) {
+            self.status = status
+            self.sizeText = sizeText
+            self.title = title
+            self.subtitle = subtitle
+            self.moreCount = moreCount
+        }
+
+        // An activity started by an earlier version has no count.
+        init(from decoder: Decoder) throws {
+            let values = try decoder.container(keyedBy: CodingKeys.self)
+            status = try values.decode(String.self, forKey: .status)
+            sizeText = try values.decode(String.self, forKey: .sizeText)
+            title = try values.decode(String.self, forKey: .title)
+            subtitle = try values.decode(String.self, forKey: .subtitle)
+            moreCount = try values.decodeIfPresent(Int.self, forKey: .moreCount) ?? 0
+        }
     }
 
     let downloadId: String
@@ -122,4 +143,5 @@ private struct DownloadsLiveStatusPayload: Decodable {
     let subtitle: String
     let status: String
     let totalBytes: Int64?
+    let moreCount: Int?
 }
