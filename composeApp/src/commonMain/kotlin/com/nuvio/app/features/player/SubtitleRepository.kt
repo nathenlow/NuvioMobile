@@ -9,6 +9,7 @@ import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.withTimeoutOrNull
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_player_no_subtitles_found
@@ -63,7 +64,8 @@ object SubtitleRepository {
             _addonSubtitles.value = emptyList()
 
             val enrichedExtras = try {
-                val hashResult = computeVideoHash(sourceUrl, sourceHeaders)
+                // A slow stream host must not hold every addon request back.
+                val hashResult = withTimeoutOrNull(HASH_TIMEOUT_MS) { computeVideoHash(sourceUrl, sourceHeaders) }
                 if (hashResult != null) {
                     val (hash, fileSize) = hashResult
                     val updated = (extras ?: SubtitleRequestExtras()).copy(
@@ -133,3 +135,5 @@ internal data class SubtitleLoadingProgress(
     val completed: Int = 0,
     val addonName: String? = null,
 )
+
+private const val HASH_TIMEOUT_MS = 5_000L

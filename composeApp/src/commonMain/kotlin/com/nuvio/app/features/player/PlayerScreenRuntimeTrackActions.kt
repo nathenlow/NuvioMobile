@@ -1,5 +1,7 @@
 package com.nuvio.app.features.player
 
+import co.touchlab.kermit.Logger
+
 internal val PlayerScreenRuntime.subtitleStyle: SubtitleStyleState
     get() = playerSettingsUiState.subtitleStyle
 
@@ -218,11 +220,25 @@ private fun PlayerScreenRuntime.tryAutoSelectPreferredSubtitleFromAvailableTrack
             selectedSubtitleIndex >= 0 -> subtitleTracks.firstOrNull { it.index == selectedSubtitleIndex }?.language
             else -> null
         }
-        val isPrimarySatisfied = primaryTarget != null && currentSelectedLang != null &&
-            SubtitleLanguageMatching.matchesLanguageCode(currentSelectedLang, primaryTarget)
+        val selectedEmbeddedTrack = subtitleTracks.firstOrNull { it.index == selectedSubtitleIndex }
+            .takeIf { selectedAddonSubtitle == null }
+        val isPrimarySatisfied = primaryTarget != null && (
+            (currentSelectedLang != null &&
+                SubtitleLanguageMatching.matchesLanguageCode(currentSelectedLang, primaryTarget)) ||
+                (selectedEmbeddedTrack != null && subtitleTrackMatchesLanguage(selectedEmbeddedTrack, primaryTarget))
+            )
         val hasBetterAddonMatch = !isPrimarySatisfied && primaryTarget != null &&
             addonSubtitles.any { SubtitleLanguageMatching.matchesLanguageCode(it.language, primaryTarget) }
-        if (!hasBetterAddonMatch) return
+        // A track the player listed after the first pick (slow demux, large file) also counts. Not with
+        // forced-only subtitles, which have their own rules.
+        val hasLateEmbeddedMatch = !isPrimarySatisfied && primaryTarget != null &&
+            !subtitleStyle.useForcedSubtitles &&
+            subtitleTracks.any { !it.isForced && subtitleTrackMatchesLanguage(it, primaryTarget) }
+        if (!hasBetterAddonMatch && !hasLateEmbeddedMatch) {
+            logSubtitleDecision("keep", "preferred=$primaryTarget satisfied=$isPrimarySatisfied")
+            return
+        }
+        logSubtitleDecision("re-evaluate", "preferred=$primaryTarget addon=$hasBetterAddonMatch embedded=$hasLateEmbeddedMatch")
     }
 
     val selectedAudioTrack = audioTracks.firstOrNull { track -> track.index == selectedAudioIndex }
@@ -280,6 +296,7 @@ private fun PlayerScreenRuntime.tryAutoSelectPreferredSubtitleFromAvailableTrack
             }
         }
         preferredSubtitleSelectionApplied = true
+        logSubtitleDecision("embedded", "track=${matchedTrack.label} lang=${matchedTrack.language} targets=${selectionPlan.targets}")
         if (selectedSubtitleIndex != internalIndex || selectedAddonSubtitleId != null) {
             if (useCustomSubtitles) {
                 playerController?.clearExternalSubtitleAndSelect(internalIndex)
@@ -352,6 +369,7 @@ private fun PlayerScreenRuntime.tryAutoSelectPreferredSubtitleFromAvailableTrack
         }
     }
     if (addonMatch != null) {
+        logSubtitleDecision("addon", "${addonMatch.display} lang=${addonMatch.language} targets=${selectionPlan.targets}")
         preferredSubtitleSelectionApplied = true
         selectedAddonSubtitleId = addonMatch.selectionKey
         selectedSubtitleIndex = -1
@@ -360,10 +378,27 @@ private fun PlayerScreenRuntime.tryAutoSelectPreferredSubtitleFromAvailableTrack
             playerController?.setSubtitleUri(addonMatch.url)
         }
     } else if (!preferredSubtitleSelectionApplied) {
+        if (isLoadingAddonSubtitles) {
+            logSubtitleDecision("wait", "no match yet, addon subtitles still loading")
+            return
+        }
+        logSubtitleDecision("off", "no match for ${selectionPlan.targets}")
         disableAutomaticSubtitleSelection()
         preferredSubtitleSelectionApplied = true
     }
 }
+
+/** One line per automatic subtitle decision, so a wrong pick can be explained from the log. */
+private fun PlayerScreenRuntime.logSubtitleDecision(decision: String, detail: String) {
+    subtitleLog.i {
+        "$decision: $detail | embedded=${subtitleTracks.size} " +
+            "[${subtitleTracks.joinToString { "${it.label}/${it.language}${if (it.isForced) "/forced" else ""}" }}] " +
+            "addon=${addonSubtitles.size} loading=$isLoadingAddonSubtitles scanned=$hasScannedTextTracksOnce " +
+            "explicit=$isUserExplicitSubtitleSelection forcedSetting=${subtitleStyle.useForcedSubtitles}"
+    }
+}
+
+private val subtitleLog = Logger.withTag("SubtitleSelect")
 
 private fun PlayerScreenRuntime.disableAutomaticSubtitleSelection() {
     if (selectedSubtitleIndex != -1 || subtitleTracks.any { it.isSelected }) {

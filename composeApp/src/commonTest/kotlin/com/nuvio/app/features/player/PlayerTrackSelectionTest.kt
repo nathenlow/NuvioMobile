@@ -8,6 +8,20 @@ import kotlin.test.assertNull
 class PlayerTrackSelectionTest {
 
     @Test
+    fun severalTracksInThePreferredLanguagePickThePlainOneNotCommentaryOrSdh() {
+        val tracks = listOf(
+            subtitleTrack(index = 0, language = "fr", label = "French Commentary", isForced = false),
+            subtitleTrack(index = 1, language = "fr", label = "French SDH", isForced = false),
+            subtitleTrack(index = 2, language = "fr", label = "French", isForced = false),
+        )
+
+        assertEquals(
+            2,
+            findPreferredSubtitleTrackIndex(tracks, listOf("fr"), SubtitleAutoSelectionMode.NORMAL_ONLY),
+        )
+    }
+
+    @Test
     fun forcedSelectionUsesPrimaryPreferredLanguageInsteadOfTrackOrder() {
         val tracks = listOf(
             subtitleTrack(index = 0, language = "ja", isForced = true),

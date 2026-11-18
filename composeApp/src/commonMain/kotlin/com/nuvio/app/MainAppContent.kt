@@ -860,7 +860,8 @@ internal fun MainAppContent(
                 sourceUrl = sourceUrl,
                 sourceHeaders = emptyMap(),
                 sourceResponseHeaders = emptyMap(),
-                externalSubtitles = DownloadSubtitles.localSubtitles(sourceUrl),
+                externalSubtitles = DownloadSubtitles.localSubtitles(sourceUrl)
+                    .also { DownloadSubtitles.retryIfIncomplete(item, sourceUrl) },
                 streamType = null,
                 logo = item.logo,
                 poster = item.poster,
@@ -982,7 +983,8 @@ internal fun MainAppContent(
                         sourceUrl = localSourceUrl,
                         sourceHeaders = emptyMap(),
                         sourceResponseHeaders = emptyMap(),
-                        externalSubtitles = DownloadSubtitles.localSubtitles(localSourceUrl),
+                        externalSubtitles = DownloadSubtitles.localSubtitles(localSourceUrl)
+                            .also { downloadedItem?.let { item -> DownloadSubtitles.retryIfIncomplete(item, localSourceUrl) } },
                         logo = logo,
                         poster = poster,
                         background = background,

@@ -114,14 +114,10 @@ internal suspend fun loadAddonSubtitles(
 ): List<AddonSubtitle> = supervisorScope {
     requests.map { request ->
         async {
-            val subtitles = try {
-                withTimeoutOrNull(10_000L) {
-                    parseAddonSubtitles(fetchAddonResponseText(request.url), request)
-                }.orEmpty()
-            } catch (error: Exception) {
-                if (error is CancellationException) throw error
-                emptyList()
-            }
+            // A timeout or error is tried once more: an empty answer means no English (or any language) all session.
+            val subtitles = fetchAddonSubtitlesOnce(request, timeoutMs = 10_000L)
+                ?: fetchAddonSubtitlesOnce(request, timeoutMs = 8_000L)
+                ?: emptyList()
             currentCoroutineContext().ensureActive()
             onLoaded(request, subtitles)
             subtitles
@@ -163,3 +159,14 @@ private fun AddonResource.supportsSubtitleType(type: String, videoId: String): B
 
 private fun JsonObject.stringValue(name: String): String? =
     this[name]?.jsonPrimitive?.contentOrNull?.trim()?.takeIf { it.isNotBlank() }
+
+/** The addon's subtitles, or null when the request timed out or failed (so it is worth a retry). */
+private suspend fun fetchAddonSubtitlesOnce(request: SubtitleAddonRequest, timeoutMs: Long): List<AddonSubtitle>? =
+    try {
+        withTimeoutOrNull(timeoutMs) {
+            parseAddonSubtitles(fetchAddonResponseText(request.url), request)
+        }
+    } catch (error: Exception) {
+        if (error is CancellationException) throw error
+        null
+    }

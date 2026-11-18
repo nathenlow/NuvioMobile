@@ -16,7 +16,7 @@ internal fun String.isLocalSubtitleUri(): Boolean {
 internal fun StreamSubtitle.toAddonSubtitle(): AddonSubtitle = AddonSubtitle(
     id = url,
     url = url,
-    language = language,
+    language = normalizeLanguageCode(language) ?: language,
     display = name?.takeIf { it.isNotBlank() } ?: language,
     addonName = name,
 )

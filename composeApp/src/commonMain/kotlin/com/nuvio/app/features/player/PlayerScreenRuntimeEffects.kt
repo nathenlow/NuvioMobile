@@ -376,6 +376,24 @@ internal fun PlayerScreenRuntime.BindPlayerRuntimeEffects() {
         }
     }
 
+    // Embedded tracks and addon results can show up after the first pick (large files, slow addons).
+    // For a few seconds after playback starts or addon results change, look again unless the user
+    // chose a subtitle themselves; refreshTracks keeps a pick that already satisfies the preference.
+    LaunchedEffect(
+        playerController,
+        playbackSnapshot.isLoading,
+        addonSubtitles,
+        isLoadingAddonSubtitles,
+        activeSourceUrl,
+    ) {
+        if (playerController == null || playbackSnapshot.isLoading) return@LaunchedEffect
+        repeat(LATE_SUBTITLE_RECHECK_COUNT) {
+            delay(LATE_SUBTITLE_RECHECK_INTERVAL_MS)
+            if (isUserExplicitSubtitleSelection) return@LaunchedEffect
+            refreshTracks()
+        }
+    }
+
     // A pending carry-over is re-applied as soon as the new engine exposes its tracks; poll
     // briefly, then give up.
     LaunchedEffect(playerController, pendingEngineSwitchTrackPreference != null) {
@@ -1086,3 +1104,6 @@ internal fun findCredentialRefreshCandidate(
 
 private const val CREDENTIAL_REFRESH_POLL_COUNT = 30
 private const val CREDENTIAL_REFRESH_POLL_INTERVAL_MS = 500L
+
+private const val LATE_SUBTITLE_RECHECK_COUNT = 12
+private const val LATE_SUBTITLE_RECHECK_INTERVAL_MS = 500L

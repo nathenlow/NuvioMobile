@@ -5,6 +5,9 @@ import com.nuvio.app.features.player.PlayerSubtitleCueParser
 import com.nuvio.app.features.player.loadAddonSubtitles
 import com.nuvio.app.features.streams.StreamSubtitle
 import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -72,10 +75,33 @@ internal object DownloadSubtitles {
             }
         }
         currentCoroutineContext().ensureActive()
+        // Complete once the addons answered (or after a few tries); a failed fetch is retried on play.
+        val attempts = manifest.attempts + 1
+        val complete = item.subtitleRequests.isEmpty() || addonSubtitles.isNotEmpty() || attempts >= MAX_SUBTITLE_ATTEMPTS
         runCatching {
-            storage.write("manifest.json", json.encodeToString(SubtitleManifest(complete = true, tracks = saved)))
+            storage.write("manifest.json", json.encodeToString(SubtitleManifest(complete = complete, attempts = attempts, tracks = saved)))
         }
         Unit
+    }
+
+    private val retryScope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
+    private val retrying = mutableSetOf<String>()
+
+    /**
+     * A download whose subtitle fetch failed (an addon timed out) is tried again when it is played, so
+     * the next play has them. Runs in the background and at most once at a time per download.
+     */
+    fun retryIfIncomplete(item: DownloadItem, localVideoUri: String) {
+        if (!localVideoUri.startsWith("file:")) return
+        if (readManifest(DownloadSubtitleStorage(localVideoUri)).complete) return
+        if (!retrying.add(localVideoUri)) return
+        retryScope.launch {
+            try {
+                runCatching { prepare(item, localVideoUri) }
+            } finally {
+                retrying.remove(localVideoUri)
+            }
+        }
     }
 
     fun localSubtitles(localVideoUri: String): List<StreamSubtitle> {
@@ -93,9 +119,12 @@ internal object DownloadSubtitles {
         }.getOrNull() ?: SubtitleManifest()
 }
 
+private const val MAX_SUBTITLE_ATTEMPTS = 3
+
 @Serializable
 private data class SubtitleManifest(
     val complete: Boolean = false,
+    val attempts: Int = 0,
     val tracks: List<DownloadedSubtitle> = emptyList(),
 )
 

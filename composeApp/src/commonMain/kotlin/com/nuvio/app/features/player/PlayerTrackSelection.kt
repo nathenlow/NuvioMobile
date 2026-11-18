@@ -212,10 +212,24 @@ internal fun findBestInternalSubtitleTrackIndex(
             val tieBroken = breakSpanishSubtitleTie(tracks, preferredCandidateIndexes, normalizedTarget)
             if (tieBroken >= 0) return tieBroken
         }
-        return preferredCandidateIndexes.first()
+        return preferredCandidateIndexes.rankedBestEmbeddedIndex(tracks)
     }
     return -1
 }
+
+private val UNWANTED_EMBEDDED_TAGS = listOf(
+    "commentary", "sdh", "hearing", "signs", "songs", "karaoke", "descriptive", "lyrics",
+)
+
+/**
+ * The best of several embedded tracks that all match the preferred language: the plain full
+ * subtitle, not commentary, SDH or signs-and-songs, with file order breaking ties.
+ */
+private fun List<Int>.rankedBestEmbeddedIndex(tracks: List<SubtitleTrack>): Int =
+    minByOrNull { index ->
+        val name = "${tracks[index].label} ${tracks[index].id}".lowercase()
+        UNWANTED_EMBEDDED_TAGS.count { it in name } * 1000 + index
+    } ?: first()
 
 internal fun findBestForcedSubtitleTrackIndex(
     tracks: List<SubtitleTrack>,
