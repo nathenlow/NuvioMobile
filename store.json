@@ -20,6 +20,16 @@
       "category": "entertainment",
       "versions": [
         {
+          "version": "0.6.25",
+          "buildVersion": "178",
+          "date": "2026-11-18T18:12:50Z",
+          "localizedDescription": "**Full Changelog**: https://github.com/nathenlow/NuvioMobile/compare/v0.6.24...v0.6.25",
+          "downloadURL": "https://github.com/nathenlow/NuvioMobile/releases/download/v0.6.25/nuvio-0.6.25-full-release.ipa",
+          "size": 71715332,
+          "sha256": "46d84e872e175b95af1c54b21ae5fcd0615bb21f03d4b8e1078452ae0f6bc984",
+          "minOSVersion": "16.1"
+        },
+        {
           "version": "0.6.24",
           "buildVersion": "177",
           "date": "2026-11-18T17:04:11Z",
