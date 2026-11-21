@@ -38,7 +38,6 @@
     <string name="downloads_cancelled_count">%1$d downloads cancelled</string>
     <string name="downloads_cancel_none">No unfinished downloads</string>
     <string name="downloads_status_queued">Queued</string>
-    <string name="downloads_resume_all">Resume all</string>
     <string name="downloads_cancel_series_action">Cancel all for this series</string>
     <string name="downloads_move_episode_to_top">Move this episode to top</string>
     <string name="downloads_move_series_to_top">Move series to top</string>
@@ -70,7 +69,6 @@
     <string name="downloads_resolution_description">Used by the built-in profiles and by any condition set to my preferred resolution. Without one, the addon's own ranking decides.</string>
     <string name="downloads_resolution_auto">Addon ranking only</string>
     <string name="downloads_resolution_value">%1$dp</string>
-    <string name="downloads_pause_all">Pause all</string>
     <string name="downloads_storage_title">Download storage</string>
     <string name="downloads_storage_internal">App storage</string>
     <string name="downloads_storage_sheet_description">Where new downloads are saved. SD cards and USB drives show up here when they are connected.</string>
