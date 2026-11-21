@@ -399,6 +399,9 @@ fun LibraryScreen(
                             actions = {
                                 if (sourceMode == LibraryViewMode.Saved) {
                                     LibraryListManagementButton()
+                                }
+                                // The saved and the downloaded view share one layout choice: shelves or grid.
+                                if (sourceMode == LibraryViewMode.Saved || sourceMode == LibraryViewMode.Downloads) {
                                     val targetLayout = if (displaySettings.layoutMode == LibraryLayoutMode.HORIZONTAL) {
                                         LibraryLayoutMode.VERTICAL
                                     } else {
@@ -483,6 +486,8 @@ fun LibraryScreen(
             } else if (sourceMode == LibraryViewMode.Downloads) {
                 downloadedLibraryContent(
                     titles = downloadedTitles,
+                    layoutMode = displaySettings.layoutMode,
+                    columns = gridColumns,
                     onTitleClick = { onDownloadedTitleClick?.invoke(it) },
                     onTitleLongClick = { downloadedTitleActions = it },
                 )

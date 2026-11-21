@@ -3,6 +3,7 @@ package com.nuvio.app.features.library
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyListScope
+import androidx.compose.foundation.lazy.items
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import com.nuvio.app.core.ui.NuvioShelfSection
@@ -11,11 +12,12 @@ import com.nuvio.app.features.downloads.DownloadedTitle
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.components.HomeEmptyStateCard
 import com.nuvio.app.features.home.components.HomePosterCard
+import com.nuvio.app.features.home.components.PosterGridRow
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.downloads_library_empty_message
 import nuvio.composeapp.generated.resources.downloads_library_empty_title
-import nuvio.composeapp.generated.resources.downloads_section_movies
-import nuvio.composeapp.generated.resources.downloads_section_shows
+import nuvio.composeapp.generated.resources.media_movie
+import nuvio.composeapp.generated.resources.media_series
 import org.jetbrains.compose.resources.stringResource
 
 /**
@@ -24,6 +26,8 @@ import org.jetbrains.compose.resources.stringResource
  */
 internal fun LazyListScope.downloadedLibraryContent(
     titles: List<DownloadedTitle>,
+    layoutMode: LibraryLayoutMode,
+    columns: Int,
     onTitleClick: (DownloadedTitle) -> Unit,
     onTitleLongClick: (DownloadedTitle) -> Unit,
 ) {
@@ -38,12 +42,31 @@ internal fun LazyListScope.downloadedLibraryContent(
         return
     }
 
+    if (layoutMode == LibraryLayoutMode.VERTICAL) {
+        // One grid of every title, the way the saved library shows it.
+        val byKey = titles.associateBy { it.metaType to it.metaId }
+        val resolve: (MetaPreview) -> DownloadedTitle? = { preview -> byKey[preview.type to preview.id] }
+        items(
+            items = titles.chunked(columns),
+            key = { row -> "downloaded-grid:${row.first().metaType}:${row.first().metaId}" },
+        ) { row ->
+            PosterGridRow(
+                items = row.map { it.toMetaPreview() },
+                columns = columns,
+                modifier = Modifier.padding(horizontal = 16.dp),
+                onPosterClick = { preview -> resolve(preview)?.let(onTitleClick) },
+                onPosterLongClick = { preview -> resolve(preview)?.let(onTitleLongClick) },
+            )
+        }
+        return
+    }
+
     val shows = titles.filter { it.isSeries }
     val movies = titles.filterNot { it.isSeries }
     if (shows.isNotEmpty()) {
         item(key = "downloaded-shows") {
             DownloadedShelf(
-                title = stringResource(Res.string.downloads_section_shows),
+                title = stringResource(Res.string.media_series),
                 titles = shows,
                 onTitleClick = onTitleClick,
                 onTitleLongClick = onTitleLongClick,
@@ -53,7 +76,7 @@ internal fun LazyListScope.downloadedLibraryContent(
     if (movies.isNotEmpty()) {
         item(key = "downloaded-movies") {
             DownloadedShelf(
-                title = stringResource(Res.string.downloads_section_movies),
+                title = stringResource(Res.string.media_movie),
                 titles = movies,
                 onTitleClick = onTitleClick,
                 onTitleLongClick = onTitleLongClick,
