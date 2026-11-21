@@ -32,6 +32,8 @@ import com.nuvio.app.features.downloads.DownloadedTitle
 import com.nuvio.app.features.library.LibraryItem
 import com.nuvio.app.features.library.LibraryScreen
 import com.nuvio.app.features.library.LibrarySection
+import com.nuvio.app.features.library.LibraryHistorySort
+import com.nuvio.app.features.library.LibraryHistoryStatus
 import com.nuvio.app.features.library.LibrarySortOption
 import com.nuvio.app.features.profiles.NuvioProfile
 import com.nuvio.app.features.profiles.ProfileBackgroundBackdrop
@@ -91,6 +93,8 @@ internal data class AppTabActions(
     val onLibraryPosterClick: ((LibraryItem) -> Unit)? = null,
     val onLibraryPosterLongClick: ((LibraryItem, LibrarySection) -> Unit)? = null,
     val onLibrarySectionViewAllClick: ((LibrarySection, LibrarySortOption) -> Unit)? = null,
+    val onLibraryHistoryViewAllClick: ((type: String, LibraryHistorySort, LibraryHistoryStatus) -> Unit)? = null,
+    val onLibraryDownloadedViewAllClick: ((type: String) -> Unit)? = null,
     val onCloudFilePlay: ((CloudLibraryItem, CloudLibraryFile) -> Unit)? = null,
     val onConnectCloudClick: (() -> Unit)? = null,
     val onDownloadsClick: () -> Unit = {},
@@ -167,6 +171,8 @@ internal fun AppTabHost(
                     onPosterClick = actions.onLibraryPosterClick,
                     onPosterLongClick = actions.onLibraryPosterLongClick,
                     onSectionViewAllClick = actions.onLibrarySectionViewAllClick,
+                    onHistoryViewAllClick = actions.onLibraryHistoryViewAllClick,
+                    onDownloadedViewAllClick = actions.onLibraryDownloadedViewAllClick,
                     onCloudFilePlay = actions.onCloudFilePlay,
                     onConnectCloudClick = actions.onConnectCloudClick,
                     onCatalogClick = actions.onCatalogClick,

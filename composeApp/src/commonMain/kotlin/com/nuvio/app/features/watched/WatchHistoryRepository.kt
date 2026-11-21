@@ -5,6 +5,7 @@ import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.watching.sync.SupabaseWatchedSyncAdapter
+import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -53,7 +54,9 @@ object WatchHistoryRepository {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var serverItems: List<WatchedItem> = emptyList()
     private var visibleCount = HISTORY_PAGE_SIZE
-    private val previewCache = mutableMapOf<String, MetaPreview>()
+    private val _artwork = MutableStateFlow<Map<String, MetaPreview>>(emptyMap())
+    /** Posters and details looked up for history titles, keyed "type:id". The server stores no artwork. */
+    val artwork: StateFlow<Map<String, MetaPreview>> = _artwork.asStateFlow()
 
     suspend fun refresh() = mutex.withLock {
         if (pullFromServer()) publish()
@@ -108,15 +111,19 @@ object WatchHistoryRepository {
     private suspend fun remove(meta: MetaPreview) = mutex.withLock {
         val aliases = watchedItemTypeAliases(meta.type)
         val matches = serverItems.filter { it.id == meta.id && it.type in aliases }
-        if (matches.isEmpty()) return@withLock
-        try {
-            SupabaseWatchedSyncAdapter.delete(ProfileRepository.activeProfileId, matches)
-        } catch (error: CancellationException) {
-            throw error
-        } catch (error: Throwable) {
-            return@withLock
+        if (matches.isNotEmpty()) {
+            try {
+                SupabaseWatchedSyncAdapter.delete(ProfileRepository.activeProfileId, matches)
+            } catch (error: CancellationException) {
+                throw error
+            } catch (error: Throwable) {
+                return@withLock
+            }
         }
-        WatchedRepository.unmarkWatchedLocally(matches)
+        // A title can also be here only through a playback that was not finished (Continue Watching).
+        val local = WatchedRepository.uiState.value.items.filter { it.id == meta.id && it.type in aliases }
+        WatchedRepository.unmarkWatchedLocally((matches + local).distinct())
+        WatchProgressRepository.removeProgress(meta.id)
         setServerItems(serverItems - matches.toSet())
         _removed.emit(meta)
         publish()
@@ -135,9 +142,14 @@ object WatchHistoryRepository {
         serverItems.sortedByDescending { it.markedAtEpochMs }
             .distinctBy { watchedItemKey(type = it.type, id = it.id) }
 
+    /** Looks up artwork for [titles] (type, id, name) not seen before, a few at a time. */
+    suspend fun resolveArtwork(titles: List<Triple<String, String, String>>) {
+        resolvePreviews(titles.map { (type, id, name) -> WatchedItem(id = id, type = type, name = name, markedAtEpochMs = 0L) })
+    }
+
     /** Looks up artwork for titles not seen before; returns whether anything new was found. */
     private suspend fun resolvePreviews(shown: List<WatchedItem>): Boolean {
-        val missing = shown.filter { it.cacheKey() !in previewCache }
+        val missing = shown.filter { it.cacheKey() !in _artwork.value }
         if (missing.isEmpty()) return false
         // The server stores no artwork, so look each new title up once, a few at a time.
         val found = coroutineScope {
@@ -145,8 +157,8 @@ object WatchHistoryRepository {
                 async { posterLookups.withPermit { MetaDetailsRepository.fetch(item.type, item.id)?.let { item to it } } }
             }.awaitAll()
         }.filterNotNull()
-        found.forEach { (item, meta) ->
-            previewCache[item.cacheKey()] = MetaPreview(
+        _artwork.value = _artwork.value + found.associate { (item, meta) ->
+            item.cacheKey() to MetaPreview(
                 id = item.id,
                 type = item.type,
                 name = meta.name.ifBlank { item.name },
@@ -158,7 +170,7 @@ object WatchHistoryRepository {
     }
 
     private fun preview(item: WatchedItem): MetaPreview =
-        previewCache[item.cacheKey()] ?: MetaPreview(
+        _artwork.value[item.cacheKey()] ?: MetaPreview(
             id = item.id,
             type = item.type,
             name = item.name,

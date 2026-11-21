@@ -40,6 +40,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.runtime.Composable
 import androidx.compose.foundation.gestures.stopScroll
 import androidx.compose.runtime.getValue
@@ -95,7 +96,9 @@ import com.nuvio.app.features.home.components.HomeSkeletonRow
 import com.nuvio.app.features.home.components.posterGridColumnCountForWidth
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.tracking.TrackingRefreshIntent
+import com.nuvio.app.features.watched.WatchHistoryRepository
 import com.nuvio.app.features.watched.WatchedRepository
+import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watching.application.WatchingState
 import com.nuvio.app.core.poster.CustomPosterScreen
 import com.nuvio.app.core.poster.CustomPosterUrlRepository
@@ -113,6 +116,8 @@ fun LibraryScreen(
     onPosterClick: ((LibraryItem) -> Unit)? = null,
     onPosterLongClick: ((LibraryItem, LibrarySection) -> Unit)? = null,
     onSectionViewAllClick: ((LibrarySection, LibrarySortOption) -> Unit)? = null,
+    onHistoryViewAllClick: ((type: String, LibraryHistorySort, LibraryHistoryStatus) -> Unit)? = null,
+    onDownloadedViewAllClick: ((type: String) -> Unit)? = null,
     onCloudFilePlay: ((CloudLibraryItem, CloudLibraryFile) -> Unit)? = null,
     onConnectCloudClick: (() -> Unit)? = null,
     onCatalogClick: ((HomeCatalogSection) -> Unit)? = null,
@@ -164,11 +169,63 @@ fun LibraryScreen(
     }
     var downloadedTitleActions by remember { mutableStateOf<DownloadedTitle?>(null) }
     var downloadedTitleToDelete by remember { mutableStateOf<DownloadedTitle?>(null) }
+    // The watch history is the Nuvio account's, so its pill only shows with the Nuvio library.
+    val showHistory = uiState.sourceMode == LibrarySourceMode.LOCAL
+    // The Cloud pill only shows when a cloud service is connected.
+    val showCloud = cloudUiState.hasConnectedProvider
+    val watchProgressState by remember {
+        WatchProgressRepository.ensureLoaded()
+        WatchProgressRepository.uiState
+    }.collectAsStateWithLifecycle()
+    val historyArtwork by WatchHistoryRepository.artwork.collectAsStateWithLifecycle()
+    var historySortName by rememberSaveable { mutableStateOf(LibraryHistorySort.RECENT.name) }
+    var historyStatusName by rememberSaveable { mutableStateOf(LibraryHistoryStatus.ALL.name) }
+    var historyType by rememberSaveable { mutableStateOf<String?>(null) }
     var sourceModeName by rememberSaveable { mutableStateOf(LibraryViewMode.Saved.name) }
-    val sourceMode = remember(sourceModeName, hasServers) {
+    val sourceMode = remember(sourceModeName, hasServers, showHistory, showCloud) {
         runCatching { LibraryViewMode.valueOf(sourceModeName) }.getOrDefault(LibraryViewMode.Saved)
-            .takeUnless { it == LibraryViewMode.Servers && !hasServers }
+            .takeUnless {
+                (it == LibraryViewMode.Servers && !hasServers) ||
+                    (it == LibraryViewMode.History && !showHistory) ||
+                    (it == LibraryViewMode.Cloud && !showCloud)
+            }
             ?: LibraryViewMode.Saved
+    }
+    val historySort = remember(historySortName) {
+        runCatching { LibraryHistorySort.valueOf(historySortName) }.getOrDefault(LibraryHistorySort.RECENT)
+    }
+    val historyStatus = remember(historyStatusName) {
+        runCatching { LibraryHistoryStatus.valueOf(historyStatusName) }.getOrDefault(LibraryHistoryStatus.ALL)
+    }
+    val historyEntries = remember(sourceMode, watchedUiState.items, watchProgressState.entries, historyArtwork, historySort, historyStatus, historyType) {
+        if (sourceMode != LibraryViewMode.History) {
+            emptyList()
+        } else {
+            buildLibraryHistory(watchedUiState.items, watchProgressState.entries, historyArtwork)
+                .filteredAndSorted(sort = historySort, status = historyStatus, type = historyType)
+        }
+    }
+    var historyRefreshing by remember { mutableStateOf(false) }
+    // The grid shows a page at a time and adds the next as it is scrolled; shelves already show a preview.
+    var historyVisible by remember(historySort, historyStatus, historyType, sourceMode) {
+        mutableStateOf(LIBRARY_GRID_PAGE_SIZE)
+    }
+    val historyPaged = displaySettings.layoutMode == LibraryLayoutMode.VERTICAL
+    val historyShown = remember(historyEntries, historyVisible, historyPaged) {
+        if (historyPaged) historyEntries.take(historyVisible) else historyEntries
+    }
+    LaunchedEffect(sourceMode == LibraryViewMode.History) {
+        // Loads the full server history, so removing a title also removes it from the account.
+        if (sourceMode == LibraryViewMode.History) WatchHistoryRepository.refresh()
+    }
+    LaunchedEffect(historyShown) {
+        // The server keeps no artwork: look up posters for titles that have none, newest first.
+        WatchHistoryRepository.resolveArtwork(
+            historyShown
+                .filter { it.preview.poster.isNullOrBlank() }
+                .take(HISTORY_ARTWORK_LOOKUPS)
+                .map { Triple(it.preview.type, it.preview.id, it.preview.name) },
+        )
     }
     LaunchedEffect(sourceMode == LibraryViewMode.Downloads) {
         if (sourceMode == LibraryViewMode.Downloads) DownloadsRepository.backfillArtwork()
@@ -401,7 +458,7 @@ fun LibraryScreen(
                                     LibraryListManagementButton()
                                 }
                                 // The saved and the downloaded view share one layout choice: shelves or grid.
-                                if (sourceMode == LibraryViewMode.Saved || sourceMode == LibraryViewMode.Downloads) {
+                                if (sourceMode == LibraryViewMode.Saved || sourceMode == LibraryViewMode.Downloads || sourceMode == LibraryViewMode.History) {
                                     val targetLayout = if (displaySettings.layoutMode == LibraryLayoutMode.HORIZONTAL) {
                                         LibraryLayoutMode.VERTICAL
                                     } else {
@@ -433,6 +490,38 @@ fun LibraryScreen(
                                         }
                                     }
                                 }
+                                if (sourceMode == LibraryViewMode.History) {
+                                    IconButton(
+                                        enabled = !historyRefreshing,
+                                        onClick = {
+                                            historyRefreshing = true
+                                            coroutineScope.launch {
+                                                try {
+                                                    val profileId = ProfileRepository.activeProfileId
+                                                    WatchedRepository.forceSnapshotRefreshFromServer(profileId)
+                                                    WatchProgressRepository.forceSnapshotRefreshFromServer(profileId)
+                                                    WatchHistoryRepository.refresh()
+                                                } finally {
+                                                    historyRefreshing = false
+                                                }
+                                            }
+                                        },
+                                    ) {
+                                        if (historyRefreshing) {
+                                            CircularProgressIndicator(
+                                                modifier = Modifier.size(20.dp),
+                                                strokeWidth = 2.dp,
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        } else {
+                                            Icon(
+                                                imageVector = Icons.Rounded.Refresh,
+                                                contentDescription = stringResource(Res.string.library_history_refresh),
+                                                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            )
+                                        }
+                                    }
+                                }
                                 if (onDownloadsClick != null) {
                                     LibraryDownloadsButton(onClick = onDownloadsClick)
                                 }
@@ -441,6 +530,8 @@ fun LibraryScreen(
                         LibrarySourceSwitch(
                             selectedMode = sourceMode,
                             showServers = hasServers,
+                            showHistory = showHistory,
+                            showCloud = showCloud,
                             onModeSelected = { mode ->
                                 sourceModeName = mode.name
                             },
@@ -490,6 +581,36 @@ fun LibraryScreen(
                     columns = gridColumns,
                     onTitleClick = { onDownloadedTitleClick?.invoke(it) },
                     onTitleLongClick = { downloadedTitleActions = it },
+                    onShelfViewAll = onDownloadedViewAllClick?.let { open ->
+                        { series -> open(if (series) "series" else "movie") }
+                    },
+                )
+            } else if (sourceMode == LibraryViewMode.History) {
+                item(key = "library-history-controls") {
+                    LibraryHistoryControls(
+                        sort = historySort,
+                        status = historyStatus,
+                        type = historyType,
+                        onSortSelected = { historySortName = it.name },
+                        onStatusSelected = { historyStatusName = it.name },
+                        onTypeSelected = { historyType = it },
+                        modifier = Modifier.padding(horizontal = 16.dp),
+                    )
+                }
+                libraryHistoryContent(
+                    entries = historyShown,
+                    layoutMode = displaySettings.layoutMode,
+                    columns = gridColumns,
+                    onTitleClick = { onPreviewClick?.invoke(it) },
+                    onTitleLongClick = { onPreviewLongClick?.invoke(it) },
+                    onShelfViewAll = onHistoryViewAllClick?.let { open ->
+                        { series -> open(if (series) "series" else "movie", historySort, historyStatus) }
+                    },
+                    onLoadMore = if (historyPaged && historyEntries.size > historyVisible) {
+                        { historyVisible += LIBRARY_GRID_PAGE_SIZE }
+                    } else {
+                        null
+                    },
                 )
             } else if (sourceMode == LibraryViewMode.Servers) {
                 serverLibraryContent(
@@ -813,6 +934,8 @@ private fun LazyListScope.cloudLibrarySkeletonItems() {
 private fun LibrarySourceSwitch(
     selectedMode: LibraryViewMode,
     showServers: Boolean,
+    showHistory: Boolean,
+    showCloud: Boolean,
     onModeSelected: (LibraryViewMode) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -825,16 +948,25 @@ private fun LibrarySourceSwitch(
             selected = selectedMode == LibraryViewMode.Saved,
             onClick = { onModeSelected(LibraryViewMode.Saved) },
         )
-        LibraryChip(
-            label = stringResource(Res.string.library_source_cloud),
-            selected = selectedMode == LibraryViewMode.Cloud,
-            onClick = { onModeSelected(LibraryViewMode.Cloud) },
-        )
+        if (showCloud) {
+            LibraryChip(
+                label = stringResource(Res.string.library_source_cloud),
+                selected = selectedMode == LibraryViewMode.Cloud,
+                onClick = { onModeSelected(LibraryViewMode.Cloud) },
+            )
+        }
         LibraryChip(
             label = stringResource(Res.string.downloads_library_chip),
             selected = selectedMode == LibraryViewMode.Downloads,
             onClick = { onModeSelected(LibraryViewMode.Downloads) },
         )
+        if (showHistory) {
+            LibraryChip(
+                label = stringResource(Res.string.library_source_history),
+                selected = selectedMode == LibraryViewMode.History,
+                onClick = { onModeSelected(LibraryViewMode.History) },
+            )
+        }
         if (showServers) {
             LibraryChip(
                 label = stringResource(Res.string.library_source_servers),
@@ -1307,7 +1439,10 @@ private enum class LibraryViewMode {
     Cloud,
     Servers,
     Downloads,
+    History,
 }
+
+private const val HISTORY_ARTWORK_LOOKUPS = 120
 
 private fun LazyListScope.librarySections(
     displaySections: List<LibraryDisplaySection>,
@@ -1367,7 +1502,6 @@ private fun LazyListScope.librarySections(
     }
 }
 
-private const val LIBRARY_SECTION_PREVIEW_LIMIT = 18
 
 private data class LibraryDisplayEntry(
     val globalKey: String,

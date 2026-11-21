@@ -7,7 +7,16 @@ import com.nuvio.app.features.collection.TmdbCollectionSourceResolver
 import com.nuvio.app.features.collection.catalogRouteKey
 import com.nuvio.app.features.library.LibraryRepository
 import com.nuvio.app.features.servers.ServerCatalog
+import com.nuvio.app.features.downloads.DownloadsRepository
+import com.nuvio.app.features.downloads.toDownloadedTitles
+import com.nuvio.app.features.library.LIBRARY_GRID_PAGE_SIZE
+import com.nuvio.app.features.library.buildLibraryHistory
+import com.nuvio.app.features.library.filteredAndSorted
+import com.nuvio.app.features.library.toMetaPreview
 import com.nuvio.app.features.watched.WatchHistoryRepository
+import com.nuvio.app.features.watched.WatchedRepository
+import com.nuvio.app.features.watchprogress.WatchProgressRepository
+import kotlinx.coroutines.flow.collectLatest
 import com.nuvio.app.features.servers.serverMessage
 import com.nuvio.app.features.home.HomeCatalogSettingsRepository
 import com.nuvio.app.features.home.filterReleasedItems
@@ -52,6 +61,14 @@ object CatalogRepository {
             observeWatchHistory(request)
             return
         }
+        if (target is CatalogTarget.LibraryHistory) {
+            observeLibraryHistory(request, target)
+            return
+        }
+        if (target is CatalogTarget.Downloaded) {
+            observeDownloaded(request, target)
+            return
+        }
         fetchPage(
             request = request,
             reset = true,
@@ -75,12 +92,72 @@ object CatalogRepository {
         }
     }
 
+    // How many titles of a History or Downloaded shelf are shown; grows by a page as the grid is scrolled.
+    private val shownLimit = MutableStateFlow(LIBRARY_GRID_PAGE_SIZE)
+
+    /** One shelf of the library's History view, kept up to date with what is watched. */
+    private fun observeLibraryHistory(request: CatalogRequest, target: CatalogTarget.LibraryHistory) {
+        activeJob?.cancel()
+        _uiState.value = CatalogUiState(isLoading = true)
+        shownLimit.value = LIBRARY_GRID_PAGE_SIZE
+        activeJob = scope.launch {
+            WatchedRepository.ensureLoaded()
+            WatchProgressRepository.ensureLoaded()
+            combine(
+                WatchedRepository.uiState,
+                WatchProgressRepository.uiState,
+                WatchHistoryRepository.artwork,
+                shownLimit,
+            ) { watched, progress, artwork, limit ->
+                val all = buildLibraryHistory(watched.items, progress.entries, artwork)
+                    .filteredAndSorted(target.sort, target.status, target.contentType)
+                all.take(limit) to all.size.takeIf { it > limit }?.let { limit }
+            }.collectLatest { (entries, nextSkip) ->
+                if (activeRequest != request) return@collectLatest
+                _uiState.value = CatalogUiState(
+                    items = entries.map { it.preview },
+                    isLoading = false,
+                    nextSkip = nextSkip,
+                )
+                // The server keeps no posters; look them up for this page, which updates the list again.
+                WatchHistoryRepository.resolveArtwork(
+                    entries.filter { it.preview.poster.isNullOrBlank() }
+                        .map { Triple(it.preview.type, it.preview.id, it.preview.name) },
+                )
+            }
+        }
+    }
+
+    /** One shelf of the library's Downloaded view, from the details saved with the downloads. */
+    private fun observeDownloaded(request: CatalogRequest, target: CatalogTarget.Downloaded) {
+        activeJob?.cancel()
+        _uiState.value = CatalogUiState(isLoading = true)
+        shownLimit.value = LIBRARY_GRID_PAGE_SIZE
+        activeJob = scope.launch {
+            DownloadsRepository.ensureLoaded()
+            combine(DownloadsRepository.uiState, shownLimit, ::Pair).collect { (state, limit) ->
+                if (activeRequest != request) return@collect
+                val wantSeries = target.contentType.equals("series", ignoreCase = true)
+                val all = state.items.toDownloadedTitles().filter { it.isSeries == wantSeries }
+                _uiState.value = CatalogUiState(
+                    items = all.take(limit).map { it.toMetaPreview() },
+                    isLoading = false,
+                    nextSkip = limit.takeIf { all.size > limit },
+                )
+            }
+        }
+    }
+
     fun loadMore() {
         val request = activeRequest ?: return
         val current = _uiState.value
         if (current.isLoading || current.nextSkip == null) return
         if (request.target is CatalogTarget.WatchHistory) {
             WatchHistoryRepository.loadMore()
+            return
+        }
+        if (request.target is CatalogTarget.LibraryHistory || request.target is CatalogTarget.Downloaded) {
+            shownLimit.value += LIBRARY_GRID_PAGE_SIZE
             return
         }
         fetchPage(
@@ -184,7 +261,8 @@ object CatalogRepository {
 
                     is CatalogTarget.Server -> ServerCatalog.page(target, skip = requestedSkip)
 
-                    is CatalogTarget.Library, CatalogTarget.WatchHistory -> error(getString(Res.string.catalog_load_failed))
+                    is CatalogTarget.Library, CatalogTarget.WatchHistory,
+                    is CatalogTarget.LibraryHistory, is CatalogTarget.Downloaded -> error(getString(Res.string.catalog_load_failed))
                 }.withUnreleasedFilter(request.hideUnreleasedContent)
             }.fold(
                 onSuccess = { page ->
@@ -269,3 +347,4 @@ private data class CatalogRequest(
     val target: CatalogTarget,
     val hideUnreleasedContent: Boolean,
 )
+

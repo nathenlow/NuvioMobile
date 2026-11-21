@@ -1,5 +1,7 @@
 package com.nuvio.app.features.catalog
 
+import com.nuvio.app.features.library.LibraryHistorySort
+import com.nuvio.app.features.library.LibraryHistoryStatus
 import com.nuvio.app.features.library.LibrarySortOption
 import kotlinx.serialization.Serializable
 
@@ -26,6 +28,20 @@ sealed interface CatalogTarget {
     /** The watch history stored on the Nuvio server (the "Watch history" Home catalog). */
     data object WatchHistory : CatalogTarget {
         override val contentType: String = "movie"
+        override val supportsPagination: Boolean = false
+    }
+
+    /** One shelf of the library's History view, opened with its View all (Movie or Series). */
+    data class LibraryHistory(
+        override val contentType: String,
+        val sort: LibraryHistorySort = LibraryHistorySort.RECENT,
+        val status: LibraryHistoryStatus = LibraryHistoryStatus.ALL,
+    ) : CatalogTarget {
+        override val supportsPagination: Boolean = false
+    }
+
+    /** One shelf of the library's Downloaded view, opened with its View all (Movie or Series). */
+    data class Downloaded(override val contentType: String) : CatalogTarget {
         override val supportsPagination: Boolean = false
     }
 

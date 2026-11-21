@@ -118,6 +118,8 @@ import com.nuvio.app.features.library.LibraryItem
 import com.nuvio.app.features.library.LibraryRepository
 import com.nuvio.app.features.library.LibrarySection
 import com.nuvio.app.features.library.rememberLibrarySectionTitleResolver
+import com.nuvio.app.features.library.LibraryHistorySort
+import com.nuvio.app.features.library.LibraryHistoryStatus
 import com.nuvio.app.features.library.LibrarySortOption
 import com.nuvio.app.features.library.LibrarySourceMode
 import com.nuvio.app.features.library.PendingTrackingMembershipRemoval
@@ -1160,6 +1162,23 @@ internal fun MainAppContent(
         }
 
         val resolveLibrarySectionTitle = rememberLibrarySectionTitleResolver()
+        val movieShelfTitle = stringResource(Res.string.media_movie)
+        val seriesShelfTitle = stringResource(Res.string.media_series)
+
+        // View all of a History or Downloaded shelf opens the same catalog page the saved library uses.
+        val openLibraryShelf: (type: String, subtitle: String, target: CatalogTarget) -> Unit = { type, subtitle, target ->
+            val shelfTitle = if (type == "series") seriesShelfTitle else movieShelfTitle
+            val launchId = CatalogLaunchStore.put(CatalogLaunch(title = shelfTitle, subtitle = subtitle, target = target))
+            navController.navigate(CatalogRoute(launchId = launchId, title = shelfTitle, subtitle = subtitle))
+        }
+        val historyShelfSubtitle = stringResource(Res.string.library_source_history)
+        val downloadedShelfSubtitle = stringResource(Res.string.downloads_library_chip)
+        val onLibraryHistoryViewAllClick: (String, LibraryHistorySort, LibraryHistoryStatus) -> Unit = { type, sort, status ->
+            openLibraryShelf(type, historyShelfSubtitle, CatalogTarget.LibraryHistory(type, sort, status))
+        }
+        val onLibraryDownloadedViewAllClick: (String) -> Unit = { type ->
+            openLibraryShelf(type, downloadedShelfSubtitle, CatalogTarget.Downloaded(type))
+        }
 
         val onLibrarySectionViewAllClick: (LibrarySection, LibrarySortOption) -> Unit = { section, sortOption ->
             val sectionTitle = resolveLibrarySectionTitle(section.type, section.displayTitle)
@@ -1422,6 +1441,8 @@ internal fun MainAppContent(
                                     )
                                 },
                                 onLibrarySectionViewAllClick = onLibrarySectionViewAllClick,
+                                onLibraryHistoryViewAllClick = onLibraryHistoryViewAllClick,
+                                onLibraryDownloadedViewAllClick = onLibraryDownloadedViewAllClick,
                                 onCloudFilePlay = { item, file ->
                                     coroutineScope.launch {
                                         val resumeItem = WatchProgressRepository
@@ -1773,7 +1794,10 @@ internal fun MainAppContent(
                     val removesFromLibrary = isSaved &&
                         (posterActionTarget.libraryItem != null || !isRemoteLibrarySource)
                     val watchHistoryKeys by WatchHistoryRepository.titleKeys.collectAsStateWithLifecycle()
-                    val inWatchHistory = watchHistoryKeys.containsWatchHistoryTitle(preview.type, preview.id)
+                    val progressState by WatchProgressRepository.uiState.collectAsStateWithLifecycle()
+                    // In the history when watched, or when a playback was started (it is in Continue Watching).
+                    val inWatchHistory = watchHistoryKeys.containsWatchHistoryTitle(preview.type, preview.id) ||
+                        progressState.entries.any { it.parentMetaId == preview.id }
                     NuvioPosterZoomActionOverlay(
                         imageUrl = selectedPosterAnchor?.imageUrl ?: preview.poster,
                         title = preview.name,
