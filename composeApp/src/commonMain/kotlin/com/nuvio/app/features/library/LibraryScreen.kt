@@ -197,12 +197,21 @@ fun LibraryScreen(
     val historyStatus = remember(historyStatusName) {
         runCatching { LibraryHistoryStatus.valueOf(historyStatusName) }.getOrDefault(LibraryHistoryStatus.ALL)
     }
-    val historyEntries = remember(sourceMode, watchedUiState.items, watchProgressState.entries, historyArtwork, historySort, historyStatus, historyType) {
+    val historyAll = remember(sourceMode, watchedUiState.items, watchProgressState.entries, historyArtwork) {
         if (sourceMode != LibraryViewMode.History) {
             emptyList()
         } else {
             buildLibraryHistory(watchedUiState.items, watchProgressState.entries, historyArtwork)
-                .filteredAndSorted(sort = historySort, status = historyStatus, type = historyType)
+        }
+    }
+    val historyEntries = remember(historyAll, historySort, historyStatus, historyType) {
+        historyAll.filteredAndSorted(sort = historySort, status = historyStatus, type = historyType)
+    }
+    // Keep the posters of the newest titles on disk, so the next visit draws at once. A title that is
+    // pushed out of the newest, or removed from the history, leaves the cache with the next update.
+    LaunchedEffect(historyAll) {
+        if (sourceMode == LibraryViewMode.History) {
+            WatchHistoryRepository.persistRecentArtwork(historyAll.recentTitles(LIBRARY_SECTION_PREVIEW_LIMIT))
         }
     }
     var historyRefreshing by remember { mutableStateOf(false) }
@@ -215,8 +224,11 @@ fun LibraryScreen(
         if (historyPaged) historyEntries.take(historyVisible) else historyEntries
     }
     LaunchedEffect(sourceMode == LibraryViewMode.History) {
-        // Loads the full server history, so removing a title also removes it from the account.
-        if (sourceMode == LibraryViewMode.History) WatchHistoryRepository.refresh()
+        if (sourceMode == LibraryViewMode.History) {
+            WatchHistoryRepository.loadCachedArtwork()
+            // Loads the full server history, so removing a title also removes it from the account.
+            WatchHistoryRepository.refresh()
+        }
     }
     LaunchedEffect(historyShown) {
         // The server keeps no artwork: look up posters for titles that have none, newest first.

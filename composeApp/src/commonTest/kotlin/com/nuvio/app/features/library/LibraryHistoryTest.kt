@@ -82,6 +82,21 @@ class LibraryHistoryTest {
     }
 
     @Test
+    fun theNewestTitlesOfEachShelfAreTheOnesKept() {
+        val history = buildLibraryHistory(
+            watched = (1..5).map { watched("m$it", "movie", "Movie $it", at = it.toLong()) } +
+                (1..5).map { watched("s$it", "series", "Series $it", at = 100L + it) },
+            progress = emptyList(),
+            artwork = emptyMap(),
+        )
+
+        assertEquals(
+            listOf("movie" to "m5", "movie" to "m4", "series" to "s5", "series" to "s4"),
+            history.recentTitles(perShelf = 2),
+        )
+    }
+
+    @Test
     fun sortsAndFiltersByStatusAndType() {
         val history = buildLibraryHistory(
             watched = listOf(

@@ -3,6 +3,7 @@ package com.nuvio.app.features.watched
 import com.nuvio.app.features.catalog.CatalogPage
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.home.MetaPreview
+import com.nuvio.app.features.profiles.MAX_PROFILES
 import com.nuvio.app.features.profiles.ProfileRepository
 import com.nuvio.app.features.watching.sync.SupabaseWatchedSyncAdapter
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
@@ -24,6 +25,10 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.Semaphore
 import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.sync.withPermit
+import kotlinx.serialization.Serializable
+import kotlinx.serialization.encodeToString
+import kotlinx.serialization.decodeFromString
+import kotlinx.serialization.json.Json
 
 private const val PULL_PAGE_SIZE = 500
 private const val HISTORY_PAGE_SIZE = 30
@@ -47,6 +52,20 @@ object WatchHistoryRepository {
     private val _removed = MutableSharedFlow<MetaPreview>(extraBufferCapacity = 8)
     /** Emits each title taken out of the history, so screens holding their own copy can drop it. */
     val removed: SharedFlow<MetaPreview> = _removed.asSharedFlow()
+
+    private val artworkJson = Json { ignoreUnknownKeys = true }
+    private var artworkProfileId: Int? = null
+    private var lastSavedArtwork: String? = null
+
+    /** What is kept on disk for one title: just enough to draw its poster card before any lookup. */
+    @Serializable
+    private data class CachedArtwork(
+        val type: String,
+        val id: String,
+        val name: String,
+        val poster: String? = null,
+        val releaseInfo: String? = null,
+    )
 
     private val mutex = Mutex()
     private val posterLookups = Semaphore(POSTER_LOOKUPS_AT_ONCE)
@@ -78,6 +97,54 @@ object WatchHistoryRepository {
     private fun setServerItems(items: List<WatchedItem>) {
         serverItems = items
         _titleKeys.value = titles().mapTo(mutableSetOf()) { watchedItemKey(type = it.type, id = it.id) }
+    }
+
+    /**
+     * Brings back the posters kept on disk for the active profile, so the history draws at once and
+     * the lookups only run for titles that were not kept. Safe to call often.
+     */
+    fun loadCachedArtwork() {
+        val profileId = ProfileRepository.activeProfileId
+        if (artworkProfileId == profileId) return
+        artworkProfileId = profileId
+        lastSavedArtwork = null
+        val stored = WatchHistoryArtworkStorage.load(profileId) ?: return
+        val kept = runCatching { artworkJson.decodeFromString<List<CachedArtwork>>(stored) }.getOrNull() ?: return
+        lastSavedArtwork = stored
+        // A poster looked up in this session is newer than the one on disk.
+        _artwork.value = kept.associate {
+            "${it.type}:${it.id}" to MetaPreview(id = it.id, type = it.type, name = it.name, poster = it.poster, releaseInfo = it.releaseInfo)
+        } + _artwork.value
+    }
+
+    /**
+     * Keeps on disk the posters of [recent] titles (type, id), the newest first, and nothing else: a
+     * title that falls out of the recent ones, or leaves the history, is dropped from the cache.
+     */
+    fun persistRecentArtwork(recent: List<Pair<String, String>>) {
+        loadCachedArtwork()
+        val artwork = _artwork.value
+        val kept = recent.mapNotNull { (type, id) ->
+            artwork["$type:$id"]?.takeUnless { it.poster.isNullOrBlank() }
+        }.map { CachedArtwork(it.type, it.id, it.name, it.poster, it.releaseInfo) }
+        val profileId = ProfileRepository.activeProfileId
+        if (kept.isEmpty()) {
+            if (lastSavedArtwork != null) WatchHistoryArtworkStorage.remove(profileId)
+            lastSavedArtwork = null
+            return
+        }
+        val payload = artworkJson.encodeToString(kept)
+        if (payload == lastSavedArtwork) return
+        lastSavedArtwork = payload
+        WatchHistoryArtworkStorage.save(profileId, payload)
+    }
+
+    /** Forgets every saved poster, when the account's local data is wiped. */
+    fun clearLocalState() {
+        for (profileId in 1..MAX_PROFILES) WatchHistoryArtworkStorage.remove(profileId)
+        artworkProfileId = null
+        lastSavedArtwork = null
+        _artwork.value = emptyMap()
     }
 
     /** One page of titles by offset, for callers that page themselves (collection folders). */

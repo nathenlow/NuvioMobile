@@ -38,6 +38,7 @@ import com.nuvio.app.features.watchprogress.ContinueWatchingPreferencesRepositor
 import com.nuvio.app.features.watchprogress.ContinueWatchingEnrichmentCache
 import com.nuvio.app.features.watchprogress.WatchProgressRepository
 import com.nuvio.app.features.watchprogress.WatchProgressSourceCoordinator
+import com.nuvio.app.features.watched.WatchHistoryRepository
 import com.nuvio.app.features.watched.WatchedRepository
 
 internal object LocalAccountDataCleaner {
@@ -50,6 +51,7 @@ internal object LocalAccountDataCleaner {
         ContinueWatchingEnrichmentCache.clearLocalState()
         WatchProgressRepository.clearLocalState()
         WatchedRepository.clearLocalState()
+        WatchHistoryRepository.clearLocalState()
         LibraryRepository.runAccountStorageWipe {
             wipePlatformStorage()
         }

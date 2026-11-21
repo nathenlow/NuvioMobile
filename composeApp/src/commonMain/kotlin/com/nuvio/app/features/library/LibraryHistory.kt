@@ -134,6 +134,16 @@ internal fun List<LibraryHistoryEntry>.filteredAndSorted(
     }
 }
 
+/**
+ * The (type, id) of the newest [perShelf] titles of each shelf (Movie and Series), the ones whose
+ * posters are worth keeping on disk. Matches how many titles a shelf shows before View all.
+ */
+internal fun List<LibraryHistoryEntry>.recentTitles(perShelf: Int): List<Pair<String, String>> {
+    val newestFirst = sortedByDescending { it.lastWatchedAtMs }
+    val (series, movies) = newestFirst.partition { it.isSeries }
+    return (movies.take(perShelf) + series.take(perShelf)).map { it.preview.type to it.preview.id }
+}
+
 @Composable
 private fun LibraryHistorySort.label(): String = stringResource(
     when (this) {
