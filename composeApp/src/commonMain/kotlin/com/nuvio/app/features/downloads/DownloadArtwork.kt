@@ -1,77 +1,110 @@
 package com.nuvio.app.features.downloads
 
-import com.nuvio.app.features.addons.httpRequestRaw
-import kotlinx.coroutines.CancellationException
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
-import kotlinx.coroutines.withTimeoutOrNull
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.aspectRatio
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.Movie
+import androidx.compose.material3.Icon
+import androidx.compose.material3.MaterialTheme
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.unit.dp
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import coil3.compose.AsyncImage
+import com.nuvio.app.core.poster.CustomPosterScreen
+import com.nuvio.app.core.poster.CustomPosterUrlRepository
+import com.nuvio.app.core.poster.CustomPosterUrlResolver
+import com.nuvio.app.core.ui.NuvioPosterCard
+import com.nuvio.app.core.ui.NuvioProgressBar
+import com.nuvio.app.core.ui.NuvioTokens
+import com.nuvio.app.core.ui.nuvio
+import com.nuvio.app.core.ui.rememberPosterCardStyleUiState
 
-internal enum class ArtworkKind(val fileName: String) {
-    Poster("poster.img"),
-    Background("background.img"),
-    Logo("logo.img"),
-    Thumbnail("thumbnail.img"),
+@Composable
+internal fun DownloadPoster(
+    item: DownloadItem,
+    modifier: Modifier = Modifier,
+) {
+    val pattern = rememberLibraryPosterPattern()
+    val originalPoster = item.posterArtwork()
+    val customPoster = remember(item.parentMetaId, item.parentMetaType, pattern) {
+        item.customPosterUrl(pattern)
+    }
+    NuvioPosterCard(
+        title = item.title,
+        imageUrl = customPoster ?: originalPoster,
+        fallbackImageUrl = originalPoster,
+        modifier = modifier.width(NuvioTokens.Space.s48),
+        showTitleBelow = false,
+    )
 }
 
-/**
- * Keeps a title's artwork on the device, next to each downloaded file, so the offline library has
- * pictures with no network. The files sit in a folder named after the video file, so they are
- * removed together with it, and with the last download of a title nothing of it is left.
- */
-internal object DownloadArtwork {
-    private const val FETCH_TIMEOUT_MS = 15_000L
-    private const val MAX_IMAGE_BYTES = 8 * 1024 * 1024
-
-    /** Saves whichever of the item's pictures are not on the device yet. Failures are ignored. */
-    suspend fun prepare(item: DownloadItem, localVideoUri: String): Unit = withContext(Dispatchers.Default) {
-        if (!localVideoUri.startsWith("file:")) return@withContext
-        val storage = DownloadArtworkStorage(localVideoUri)
-        val sources = listOf(
-            ArtworkKind.Poster to item.poster,
-            ArtworkKind.Background to item.background,
-            ArtworkKind.Logo to item.logo,
-            ArtworkKind.Thumbnail to item.episodeThumbnail,
-        )
-        for ((kind, url) in sources) {
-            if (url.isNullOrBlank() || !(url.startsWith("https://", true) || url.startsWith("http://", true))) continue
-            if (storage.localFileUri(kind.fileName) != null) continue
-            val bytes = try {
-                withTimeoutOrNull(FETCH_TIMEOUT_MS) {
-                    httpRequestRaw(
-                        method = "GET",
-                        url = url,
-                        headers = emptyMap(),
-                        body = "",
-                        maxResponseBodyBytes = MAX_IMAGE_BYTES,
-                    )
-                }?.takeIf { it.status in 200..299 && it.bodyBytes.isNotEmpty() }?.bodyBytes
-            } catch (error: Exception) {
-                if (error is CancellationException) throw error
-                null
-            } ?: continue
-            try {
-                storage.write(kind.fileName, bytes)
-            } catch (error: Exception) {
-                if (error is CancellationException) throw error
-            }
+@Composable
+internal fun DownloadThumbnail(
+    imageUrl: String?,
+    modifier: Modifier = Modifier,
+    watchProgress: Float = 0f,
+) {
+    val tokens = MaterialTheme.nuvio
+    val cornerRadius = rememberPosterCardStyleUiState().cornerRadiusDp.dp
+    Box(
+        modifier = modifier
+            .width(NuvioTokens.Space.s96)
+            .aspectRatio(16f / 9f)
+            .clip(RoundedCornerShape(cornerRadius))
+            .background(tokens.colors.surfaceCard),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (imageUrl == null) {
+            Icon(
+                imageVector = Icons.Rounded.Movie,
+                contentDescription = null,
+                tint = tokens.colors.textMuted,
+                modifier = Modifier.size(NuvioTokens.Icon.md),
+            )
+        } else {
+            AsyncImage(
+                model = imageUrl,
+                contentDescription = null,
+                modifier = Modifier.matchParentSize(),
+                contentScale = ContentScale.Crop,
+            )
+        }
+        if (watchProgress > 0f) {
+            NuvioProgressBar(
+                progress = watchProgress,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(NuvioTokens.Space.s4),
+                height = NuvioTokens.Space.s3,
+            )
         }
     }
-
-    fun localUri(localVideoUri: String?, kind: ArtworkKind): String? {
-        if (localVideoUri == null || !localVideoUri.startsWith("file:")) return null
-        return DownloadArtworkStorage(localVideoUri).localFileUri(kind.fileName)
-    }
 }
 
-/** The saved picture for [kind] if it is on the device. */
-internal fun DownloadItem.localArtwork(kind: ArtworkKind): String? =
-    DownloadArtwork.localUri(
-        DownloadsPlatformDownloader.resolveLocalFileUri(localFileUri, fileName),
-        kind,
-    )
+@Composable
+private fun rememberLibraryPosterPattern(): String {
+    CustomPosterUrlRepository.ensureLoaded()
+    val pattern by CustomPosterUrlRepository.pattern.collectAsStateWithLifecycle()
+    val screens by CustomPosterUrlRepository.enabledScreens.collectAsStateWithLifecycle()
+    return if (CustomPosterScreen.LIBRARY in screens) pattern else ""
+}
 
-internal expect class DownloadArtworkStorage(localVideoUri: String) {
-    fun write(fileName: String, bytes: ByteArray)
-    fun localFileUri(fileName: String): String?
-    fun remove()
+private fun DownloadItem.customPosterUrl(pattern: String): String? {
+    if (pattern.isBlank()) return null
+    return CustomPosterUrlResolver.resolve(
+        pattern = pattern,
+        ids = CustomPosterUrlResolver.extractIds(parentMetaId),
+        type = if (parentMetaType.equals("movie", ignoreCase = true)) "movie" else "series",
+    )
 }

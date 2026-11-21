@@ -30,6 +30,7 @@ It follows upstream `cmp-rewrite` and is not affiliated with the Nuvio team.
 
 - [Android APK](https://github.com/nathenlow/NuvioMobile/releases/latest)
 - iOS via AltStore or SideStore: add [this source URL](https://raw.githubusercontent.com/nathenlow/NuvioMobile/cmp-rewrite/store.json) in the app's Sources section, then install Nuvio. Updates are published here as unsigned IPAs, so AltStore or SideStore signs them with your own Apple ID.
+- iOS beta builds: add [the beta source URL](https://raw.githubusercontent.com/nathenlow/NuvioMobile/cmp-rewrite/store-beta.json) instead to get pre-releases as well.
 
 ## Build from source
 
