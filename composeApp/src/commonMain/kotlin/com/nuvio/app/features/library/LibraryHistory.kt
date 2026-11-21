@@ -210,6 +210,8 @@ internal fun LazyListScope.libraryHistoryContent(
     onTitleLongClick: (MetaPreview) -> Unit,
     onShelfViewAll: ((series: Boolean) -> Unit)? = null,
     onLoadMore: (() -> Unit)? = null,
+    watchedKeys: Set<String> = emptySet(),
+    fullyWatchedSeriesKeys: Set<String> = emptySet(),
 ) {
     if (entries.isEmpty()) {
         item(key = "history-empty") {
@@ -232,5 +234,7 @@ internal fun LazyListScope.libraryHistoryContent(
         onLongClick = { onTitleLongClick(it.preview) },
         onShelfViewAll = onShelfViewAll,
         onLoadMore = onLoadMore,
+        watchedKeys = watchedKeys,
+        fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
     )
 }

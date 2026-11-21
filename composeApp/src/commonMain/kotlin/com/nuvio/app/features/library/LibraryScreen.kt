@@ -584,6 +584,8 @@ fun LibraryScreen(
                     onShelfViewAll = onDownloadedViewAllClick?.let { open ->
                         { series -> open(if (series) "series" else "movie") }
                     },
+                    watchedKeys = watchedUiState.watchedKeys,
+                    fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
                 )
             } else if (sourceMode == LibraryViewMode.History) {
                 item(key = "library-history-controls") {
@@ -611,6 +613,8 @@ fun LibraryScreen(
                     } else {
                         null
                     },
+                    watchedKeys = watchedUiState.watchedKeys,
+                    fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
                 )
             } else if (sourceMode == LibraryViewMode.Servers) {
                 serverLibraryContent(

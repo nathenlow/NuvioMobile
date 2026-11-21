@@ -23,6 +23,8 @@ internal fun LazyListScope.downloadedLibraryContent(
     onTitleClick: (DownloadedTitle) -> Unit,
     onTitleLongClick: (DownloadedTitle) -> Unit,
     onShelfViewAll: ((series: Boolean) -> Unit)? = null,
+    watchedKeys: Set<String> = emptySet(),
+    fullyWatchedSeriesKeys: Set<String> = emptySet(),
 ) {
     if (titles.isEmpty()) {
         item(key = "downloaded-empty") {
@@ -45,6 +47,8 @@ internal fun LazyListScope.downloadedLibraryContent(
         onClick = onTitleClick,
         onLongClick = onTitleLongClick,
         onShelfViewAll = onShelfViewAll,
+        watchedKeys = watchedKeys,
+        fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
     )
 }
 

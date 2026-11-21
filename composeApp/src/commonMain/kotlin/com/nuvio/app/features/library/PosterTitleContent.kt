@@ -15,6 +15,7 @@ import com.nuvio.app.core.ui.NuvioViewAllPillSize
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.home.components.HomePosterCard
 import com.nuvio.app.features.home.components.PosterGridRow
+import com.nuvio.app.features.watching.application.WatchingState
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.media_movie
 import nuvio.composeapp.generated.resources.media_series
@@ -37,6 +38,9 @@ internal fun <T> LazyListScope.posterTitleContent(
     onShelfViewAll: ((series: Boolean) -> Unit)? = null,
     /** Called when the grid is scrolled to its end, to show the next page. Null when everything is shown. */
     onLoadMore: (() -> Unit)? = null,
+    /** What is watched, for the tick on a poster. */
+    watchedKeys: Set<String> = emptySet(),
+    fullyWatchedSeriesKeys: Set<String> = emptySet(),
 ) {
     if (layoutMode == LibraryLayoutMode.VERTICAL) {
         val byKey = entries.associateBy { preview(it).let { meta -> meta.type to meta.id } }
@@ -49,6 +53,8 @@ internal fun <T> LazyListScope.posterTitleContent(
                 items = row.map(preview),
                 columns = columns,
                 modifier = Modifier.padding(horizontal = 16.dp),
+                watchedKeys = watchedKeys,
+                fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
                 onPosterClick = { meta -> resolve(meta)?.let(onClick) },
                 onPosterLongClick = { meta -> resolve(meta)?.let(onLongClick) },
             )
@@ -74,6 +80,8 @@ internal fun <T> LazyListScope.posterTitleContent(
                 preview = preview,
                 onClick = onClick,
                 onLongClick = onLongClick,
+                watchedKeys = watchedKeys,
+                fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
                 onViewAllClick = onShelfViewAll?.let { open -> { open(false) } },
             )
         }
@@ -86,6 +94,8 @@ internal fun <T> LazyListScope.posterTitleContent(
                 preview = preview,
                 onClick = onClick,
                 onLongClick = onLongClick,
+                watchedKeys = watchedKeys,
+                fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
                 onViewAllClick = onShelfViewAll?.let { open -> { open(true) } },
             )
         }
@@ -105,6 +115,8 @@ private fun <T> PosterTitleShelf(
     preview: (T) -> MetaPreview,
     onClick: (T) -> Unit,
     onLongClick: (T) -> Unit,
+    watchedKeys: Set<String>,
+    fullyWatchedSeriesKeys: Set<String>,
     onViewAllClick: (() -> Unit)?,
 ) {
     NuvioShelfSection(
@@ -118,6 +130,11 @@ private fun <T> PosterTitleShelf(
     ) { entry ->
         HomePosterCard(
             item = preview(entry),
+            isWatched = WatchingState.isPosterWatched(
+                watchedKeys = watchedKeys,
+                item = preview(entry),
+                fullyWatchedSeriesKeys = fullyWatchedSeriesKeys,
+            ),
             onClick = { onClick(entry) },
             onLongClick = { onLongClick(entry) },
         )
