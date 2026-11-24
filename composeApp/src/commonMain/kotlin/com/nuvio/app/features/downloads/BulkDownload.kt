@@ -205,13 +205,13 @@ class BulkDownloadSession(val request: BulkDownloadRequest) {
             // the cache status an addon reports can be wrong or still unknown.
             repeat(MAX_NOT_CACHED_RETRIES + 1) {
                 if (resolvedStream != null) return@repeat
-                when (val outcome = resolvePlayable(state, stream, toastNotCached = false)) {
-                    is Resolved.Playable -> resolvedStream = outcome.stream
-                    Resolved.NotCached -> {
+                when (val outcome = resolveDownloadableStream(stream, state.ref.seasonNumber, state.ref.episodeNumber, toastNotCached = false)) {
+                    is StreamResolution.Playable -> resolvedStream = outcome.stream
+                    StreamResolution.NotCached -> {
                         tried += stream
                         stream = (if (state.manual) null else autoSelect(state.groups, skip = tried)) ?: return@repeat
                     }
-                    Resolved.Failed -> return@repeat
+                    StreamResolution.Failed -> return@repeat
                 }
             }
             val playable = resolvedStream ?: run {
@@ -242,32 +242,6 @@ class BulkDownloadSession(val request: BulkDownloadRequest) {
             }
         }
         return queued
-    }
-
-    private sealed interface Resolved {
-        data class Playable(val stream: StreamItem) : Resolved
-        data object NotCached : Resolved
-        data object Failed : Resolved
-    }
-
-    private suspend fun resolvePlayable(state: BulkEpisodeState, stream: StreamItem, toastNotCached: Boolean = true): Resolved {
-        if (!DirectDebridPlaybackResolver.shouldResolveToPlayableStream(stream)) return Resolved.Playable(stream)
-        val resolved = DirectDebridPlaybackResolver.resolveToPlayableStream(
-            stream = stream,
-            season = state.ref.seasonNumber,
-            episode = state.ref.episodeNumber,
-        )
-        return when (resolved) {
-            is DirectDebridPlayableResult.Success -> Resolved.Playable(resolved.stream)
-            DirectDebridPlayableResult.NotCached -> {
-                if (toastNotCached) resolved.toastMessage()?.let { NuvioToastController.show(it) }
-                Resolved.NotCached
-            }
-            else -> {
-                resolved.toastMessage()?.let { NuvioToastController.show(it) }
-                Resolved.Failed
-            }
-        }
     }
 
     fun close() {

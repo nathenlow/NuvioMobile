@@ -6,6 +6,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.Checklist
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Download
 import androidx.compose.material3.ExperimentalMaterial3Api
@@ -25,6 +26,7 @@ import com.nuvio.app.core.ui.nuvioSafeBottomPadding
 import com.nuvio.app.features.details.MetaVideo
 import kotlinx.coroutines.launch
 import nuvio.composeapp.generated.resources.Res
+import nuvio.composeapp.generated.resources.bulk_download_option_choose
 import nuvio.composeapp.generated.resources.bulk_download_option_count
 import nuvio.composeapp.generated.resources.bulk_download_options_title
 import nuvio.composeapp.generated.resources.downloads_delete_series_all
@@ -45,6 +47,8 @@ fun BulkDownloadOptionsSheet(
     /** Number of downloaded episodes; when above zero a delete-all row is shown. */
     downloadedCount: Int = 0,
     onDeleteAllDownloaded: (() -> Unit)? = null,
+    /** Opens a list to tick individual episodes; the row is hidden when null. */
+    onChooseEpisodes: (() -> Unit)? = null,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
@@ -81,6 +85,16 @@ fun BulkDownloadOptionsSheet(
                                 style = MaterialTheme.typography.labelLarge,
                                 color = MaterialTheme.colorScheme.onSurfaceVariant,
                             )
+                        },
+                    )
+                }
+                if (onChooseEpisodes != null) {
+                    NuvioBottomSheetActionRow(
+                        icon = Icons.Default.Checklist,
+                        title = stringResource(Res.string.bulk_download_option_choose),
+                        onClick = {
+                            onChooseEpisodes()
+                            dismiss()
                         },
                     )
                 }

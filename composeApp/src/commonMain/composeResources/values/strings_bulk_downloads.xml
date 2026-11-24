@@ -210,4 +210,13 @@
     <string name="downloads_markers_try_hint">Paste a stream name or description</string>
     <string name="downloads_markers_try_result">Reads as: %1$s</string>
     <string name="downloads_markers_try_nothing">No marker found in this text</string>
+    <string name="downloads_error_too_small">The file is under 1 MB, so it is not a real video. The stream may be uncached or still loading. Try another stream.</string>
+    <string name="downloads_switch_stream">Switch stream</string>
+    <string name="bulk_download_stream_selected">Selected</string>
+    <string name="bulk_download_option_choose">Choose episodes…</string>
+    <string name="bulk_download_picker_title">Choose episodes</string>
+    <string name="bulk_download_picker_select_all">Select all</string>
+    <string name="bulk_download_picker_clear">Clear</string>
+    <string name="bulk_download_picker_continue">Continue (%1$d)</string>
+    <string name="bulk_download_option_chosen">Chosen episodes</string>
 </resources>

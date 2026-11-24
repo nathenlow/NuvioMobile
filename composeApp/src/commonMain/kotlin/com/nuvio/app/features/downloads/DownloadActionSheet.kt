@@ -14,6 +14,7 @@ import androidx.compose.material.icons.rounded.VerticalAlignTop
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.PlayArrow
 import androidx.compose.material.icons.rounded.Refresh
+import androidx.compose.material.icons.rounded.SwapHoriz
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
@@ -36,6 +37,7 @@ import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.downloads_cancel_series_action
 import nuvio.composeapp.generated.resources.downloads_move_episode_to_top
 import nuvio.composeapp.generated.resources.downloads_move_series_to_top
+import nuvio.composeapp.generated.resources.downloads_switch_stream
 import nuvio.composeapp.generated.resources.action_delete
 import nuvio.composeapp.generated.resources.action_play
 import nuvio.composeapp.generated.resources.action_resume
@@ -58,6 +60,8 @@ internal fun DownloadActionSheet(
     onMoveToTop: (() -> Unit)? = null,
     onMoveSeriesToTop: (() -> Unit)? = null,
     onCancelSeries: (() -> Unit)? = null,
+    /** Offered for a failed download: try another stream of the episode. */
+    onSwitchStream: (() -> Unit)? = null,
 ) {
     if (item == null) return
     val tokens = MaterialTheme.nuvio
@@ -108,6 +112,13 @@ internal fun DownloadActionSheet(
                     icon = Icons.Rounded.Refresh,
                     title = stringResource(Res.string.action_retry),
                     onClick = { dismissAfter(onToggleTransfer) },
+                )
+            }
+            onSwitchStream?.let { action ->
+                NuvioBottomSheetActionRow(
+                    icon = Icons.Rounded.SwapHoriz,
+                    title = stringResource(Res.string.downloads_switch_stream),
+                    onClick = { dismissAfter(action) },
                 )
             }
             onMoveToTop?.let { action ->

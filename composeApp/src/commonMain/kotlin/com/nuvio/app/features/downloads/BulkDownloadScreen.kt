@@ -266,8 +266,14 @@ fun BulkDownloadScreen(
 
     val switchEpisode = switchFor?.let { id -> episodes.firstOrNull { it.ref.videoId == id } }
     if (switchEpisode != null) {
-        SwitchStreamSheet(
-            state = switchEpisode,
+        StreamSwitchSheet(
+            subtitle = listOfNotNull(
+                localizedSeasonEpisodeCode(switchEpisode.ref.seasonNumber, switchEpisode.ref.episodeNumber),
+                localizedEpisodeTitle(switchEpisode.ref.title, switchEpisode.ref.episodeNumber),
+            ).joinToString(" · "),
+            groups = switchEpisode.groups,
+            loading = switchEpisode.status == BulkFetchStatus.Loading || switchEpisode.status == BulkFetchStatus.Waiting,
+            selected = switchEpisode.selected,
             onDismiss = { switchFor = null },
             onReload = { session.reload(switchEpisode.ref.videoId) },
             onSelect = { stream -> session.select(switchEpisode.ref.videoId, stream) },
@@ -321,22 +327,7 @@ private fun BulkEpisodeRow(
                     overflow = TextOverflow.Ellipsis,
                 )
                 if (stream != null && download == null) {
-                    Text(
-                        text = "${stream.addonName} • ${stream.streamLabel}",
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurface,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    stream.streamSubtitle?.takeIf { it.isNotBlank() }?.let { details ->
-                        Text(
-                            text = details,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            maxLines = 2,
-                            overflow = TextOverflow.Ellipsis,
-                        )
-                    }
+                    StreamDetailBlock(stream = stream)
                 } else {
                     Text(
                         text = rowStatusText(state, download),
@@ -414,8 +405,14 @@ private fun EpisodeActionsSheet(
                     localizedSeasonEpisodeCode(state.ref.seasonNumber, state.ref.episodeNumber),
                     localizedEpisodeTitle(state.ref.title, state.ref.episodeNumber),
                 ).joinToString(" · "),
-                subtitle = stream?.let { "${it.addonName} • ${it.streamLabel}" },
+                subtitle = null,
             )
+            if (stream != null) {
+                StreamDetailBlock(
+                    stream = stream,
+                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 4.dp),
+                )
+            }
             NuvioBottomSheetDivider()
             if (stream != null) {
                 NuvioBottomSheetActionRow(
@@ -453,129 +450,6 @@ private fun EpisodeActionsSheet(
                     dismiss()
                 },
             )
-        }
-    }
-}
-
-@OptIn(ExperimentalMaterial3Api::class)
-@Composable
-private fun SwitchStreamSheet(
-    state: BulkEpisodeState,
-    onDismiss: () -> Unit,
-    onReload: () -> Unit,
-    onSelect: (StreamItem) -> Unit,
-) {
-    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
-    val scope = rememberCoroutineScope()
-    val dismiss: () -> Unit = {
-        scope.launch { dismissNuvioBottomSheet(sheetState = sheetState, onDismiss = onDismiss) }
-    }
-    val groups = remember(state.groups) {
-        state.groups.map { it to it.downloadableStreams() }.filter { (_, streams) -> streams.isNotEmpty() }
-    }
-    val loading = state.status == BulkFetchStatus.Loading || state.status == BulkFetchStatus.Waiting
-
-    NuvioModalBottomSheet(onDismissRequest = dismiss, sheetState = sheetState, fullHeight = true) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = nuvioSafeBottomPadding(16.dp)),
-        ) {
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Box(modifier = Modifier.weight(1f)) {
-                    SheetHeader(
-                        title = stringResource(Res.string.bulk_download_switch_title),
-                        subtitle = listOfNotNull(
-                            localizedSeasonEpisodeCode(state.ref.seasonNumber, state.ref.episodeNumber),
-                            localizedEpisodeTitle(state.ref.title, state.ref.episodeNumber),
-                        ).joinToString(" · "),
-                    )
-                }
-                if (loading) {
-                    CircularProgressIndicator(
-                        modifier = Modifier
-                            .padding(end = 12.dp)
-                            .size(20.dp),
-                        strokeWidth = 2.dp,
-                    )
-                }
-                IconButton(onClick = onReload, enabled = !loading) {
-                    Icon(
-                        imageVector = Icons.Rounded.Refresh,
-                        contentDescription = stringResource(Res.string.bulk_download_reload_streams),
-                    )
-                }
-            }
-            NuvioBottomSheetDivider()
-            if (groups.isEmpty()) {
-                Text(
-                    text = stringResource(Res.string.bulk_download_switch_empty),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    modifier = Modifier.padding(20.dp),
-                )
-            } else {
-                LazyColumn(modifier = Modifier.heightIn(max = 560.dp)) {
-                    groups.forEach { (group, streams) ->
-                        item(key = "header:${group.addonId}") {
-                            Text(
-                                text = group.addonName,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 14.dp, bottom = 4.dp),
-                            )
-                        }
-                        items(items = streams) { stream ->
-                            StreamChoiceRow(
-                                stream = stream,
-                                selected = stream == state.selected,
-                                onClick = {
-                                    onSelect(stream)
-                                    dismiss()
-                                },
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-@Composable
-private fun StreamChoiceRow(
-    stream: StreamItem,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 20.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
-            Text(
-                text = stream.streamLabel,
-                style = MaterialTheme.typography.bodyMedium,
-                fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-                color = if (selected) MaterialTheme.nuvio.colors.accent else MaterialTheme.colorScheme.onSurface,
-                maxLines = 2,
-                overflow = TextOverflow.Ellipsis,
-            )
-            stream.streamSubtitle?.takeIf { it.isNotBlank() }?.let { details ->
-                Text(
-                    text = details,
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    maxLines = 3,
-                    overflow = TextOverflow.Ellipsis,
-                )
-            }
         }
     }
 }

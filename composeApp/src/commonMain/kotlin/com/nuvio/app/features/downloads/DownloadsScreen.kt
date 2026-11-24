@@ -11,6 +11,9 @@ import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.rememberCoroutineScope
+import com.nuvio.app.features.streams.AddonStreamGroup
+import com.nuvio.app.features.streams.StreamsRepository
+import kotlinx.coroutines.CancellationException
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.unit.dp
@@ -121,6 +124,7 @@ fun DownloadsScreen(
     var selectedShowId by rememberSaveable(initialShowId) { mutableStateOf(initialShowId) }
     var actionsItemId by rememberSaveable { mutableStateOf<String?>(null) }
     var deleteItemId by rememberSaveable { mutableStateOf<String?>(null) }
+    var switchItemId by rememberSaveable { mutableStateOf<String?>(null) }
     val speeds = rememberDownloadSpeeds(uiState.items)
     val watchStatusOf = remember(watchProgressState, watchedState) {
         { item: DownloadItem -> item.watchStatus(watchProgressState) }
@@ -234,7 +238,13 @@ fun DownloadsScreen(
         onMoveToTop = unfinishedItem?.let { { DownloadsRepository.moveToTop(it.id) } },
         onMoveSeriesToTop = unfinishedEpisode?.let { { DownloadsRepository.moveSeriesToTop(it.parentMetaId) } },
         onCancelSeries = unfinishedEpisode?.let { { cancelUnfinished(it.parentMetaId) } },
+        onSwitchStream = actionsItem?.takeIf { it.status == DownloadStatus.Failed }?.let { { switchItemId = it.id } },
     )
+
+    val switchItem = switchItemId?.let { id -> uiState.items.firstOrNull { it.id == id } }
+    if (switchItem != null) {
+        SwitchFailedDownloadStream(item = switchItem, onDismiss = { switchItemId = null })
+    }
 
     if (confirmCancelAll) {
         NuvioStatusModal(
@@ -653,4 +663,55 @@ private fun SwipeToPrioritizeBox(
     ) {
         content()
     }
+}
+
+/** Lets the user pick another stream for a download that failed, and restarts the download with it. */
+@Composable
+private fun SwitchFailedDownloadStream(
+    item: DownloadItem,
+    onDismiss: () -> Unit,
+) {
+    val scope = rememberCoroutineScope()
+    var groups by remember(item.id) { mutableStateOf<List<AddonStreamGroup>>(emptyList()) }
+    var loading by remember(item.id) { mutableStateOf(true) }
+    var reload by remember(item.id) { mutableStateOf(0) }
+    LaunchedEffect(item.id, reload) {
+        loading = true
+        groups = try {
+            StreamsRepository.fetchStreamGroups(
+                type = item.contentType,
+                videoId = item.videoId,
+                season = item.seasonNumber,
+                episode = item.episodeNumber,
+                forceRefresh = reload > 0,
+            )
+        } catch (error: CancellationException) {
+            throw error
+        } catch (error: Throwable) {
+            emptyList()
+        }
+        loading = false
+    }
+    val failedStream = remember(groups, item.sourceUrl) {
+        groups.flatMap { it.streams }.firstOrNull { it.playableDirectUrl?.trim() == item.sourceUrl }
+    }
+    StreamSwitchSheet(
+        subtitle = listOfNotNull(item.title, item.episodeLabel()).joinToString(DownloadTextSeparator),
+        groups = groups,
+        loading = loading,
+        selected = failedStream,
+        onDismiss = onDismiss,
+        onReload = { reload += 1 },
+        onSelect = { stream ->
+            scope.launch {
+                val resolution = resolveDownloadableStream(stream, item.seasonNumber, item.episodeNumber)
+                if (resolution is StreamResolution.Playable) {
+                    val result = DownloadsRepository.switchStream(item, resolution.stream)
+                    if (result != DownloadEnqueueResult.Started && result != DownloadEnqueueResult.Replaced) {
+                        NuvioToastController.show(result.toastMessage())
+                    }
+                }
+            }
+        },
+    )
 }

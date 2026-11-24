@@ -11,6 +11,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import com.nuvio.app.core.ui.NuvioToastController
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withContext
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -142,6 +143,24 @@ object DownloadsRepository {
 
         return resolvedUri
     }
+
+    /** Restarts a download, usually a failed one, with another stream of the same episode. */
+    fun switchStream(item: DownloadItem, stream: StreamItem): DownloadEnqueueResult =
+        enqueueFromStream(
+            contentType = item.contentType,
+            videoId = item.videoId,
+            parentMetaId = item.parentMetaId,
+            parentMetaType = item.parentMetaType,
+            title = item.title,
+            logo = item.logo,
+            poster = item.poster,
+            background = item.background,
+            seasonNumber = item.seasonNumber,
+            episodeNumber = item.episodeNumber,
+            episodeTitle = item.episodeTitle,
+            episodeThumbnail = item.episodeThumbnail,
+            stream = stream,
+        )
 
     fun enqueueFromStream(
         contentType: String,
@@ -739,7 +758,10 @@ object DownloadsRepository {
 
         _uiState.value = DownloadsUiState(normalized)
         notifyLiveStatusPlatform()
-        if (shouldPersistNormalized) {
+        // A download that finished in the background as a few bytes is rejected the same way.
+        val tooSmall = normalized.filter { it.status == DownloadStatus.Completed && it.downloadedBytes in 1 until MIN_VIDEO_BYTES }
+        tooSmall.forEach { rejectTooSmall(it.id, it.localFileUri) }
+        if (shouldPersistNormalized || tooSmall.isNotEmpty()) {
             persist()
         }
         normalized.filter { it.status == DownloadStatus.Downloading && it.id !in activeHandles }
@@ -795,23 +817,31 @@ object DownloadsRepository {
             },
             onSuccess = { localFileUri, totalBytes ->
                 activeHandles.remove(item.id)
-                var completed: DownloadItem? = null
-                mutateItem(item.id) { current ->
-                    if (current.status != DownloadStatus.Downloading) return@mutateItem current
-                    current.copy(
-                        status = DownloadStatus.Completed,
-                        localFileUri = localFileUri,
-                        downloadedBytes = if (totalBytes != null && totalBytes > 0L) {
-                            totalBytes
-                        } else {
-                            current.downloadedBytes
-                        },
-                        totalBytes = totalBytes?.takeIf { it > 0L } ?: current.totalBytes,
-                        errorMessage = null,
-                        updatedAtEpochMs = DownloadsClock.nowEpochMs(),
-                    ).also { completed = it }
+                val finalBytes = totalBytes?.takeIf { it > 0L }
+                    ?: _uiState.value.items.firstOrNull { it.id == item.id }?.downloadedBytes
+                    ?: 0L
+                if (finalBytes < MIN_VIDEO_BYTES) {
+                    // Not a video: a loading or "not cached" reply the add-on served in its place.
+                    rejectTooSmall(item.id, localFileUri)
+                } else {
+                    var completed: DownloadItem? = null
+                    mutateItem(item.id) { current ->
+                        if (current.status != DownloadStatus.Downloading) return@mutateItem current
+                        current.copy(
+                            status = DownloadStatus.Completed,
+                            localFileUri = localFileUri,
+                            downloadedBytes = if (totalBytes != null && totalBytes > 0L) {
+                                totalBytes
+                            } else {
+                                current.downloadedBytes
+                            },
+                            totalBytes = totalBytes?.takeIf { it > 0L } ?: current.totalBytes,
+                            errorMessage = null,
+                            updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+                        ).also { completed = it }
+                    }
+                    completed?.let(::writeRecord)
                 }
-                completed?.let(::writeRecord)
                 pumpQueue()
             },
             onFailure = { message ->
@@ -840,6 +870,29 @@ object DownloadsRepository {
         )
 
         activeHandles[item.id] = handle
+    }
+
+    /**
+     * A "finished" file under [MIN_VIDEO_BYTES] is not a video, usually an add-on's loading page or an
+     * uncached file. It is deleted and the download fails with a message, so another stream can be tried.
+     */
+    private fun rejectTooSmall(downloadId: String, localFileUri: String?) {
+        val message = runBlocking { getString(Res.string.downloads_error_too_small) }
+        var fileName: String? = null
+        mutateItem(downloadId) { current ->
+            fileName = current.fileName
+            current.copy(
+                status = DownloadStatus.Failed,
+                localFileUri = null,
+                downloadedBytes = 0L,
+                totalBytes = null,
+                errorMessage = message,
+                updatedAtEpochMs = DownloadsClock.nowEpochMs(),
+            )
+        }
+        DownloadsPlatformDownloader.removeFile(localFileUri)
+        fileName?.let { DownloadsPlatformDownloader.removePartialFile(it) }
+        NuvioToastController.show(message)
     }
 
     private fun mutateItem(downloadId: String, transform: (DownloadItem) -> DownloadItem) {
@@ -1146,6 +1199,9 @@ private fun String.isSupportedDownloadUrl(): Boolean {
     if (normalized.endsWith(".torrent") || normalized.contains(".torrent?")) return false
     return normalized.startsWith("http://") || normalized.startsWith("https://")
 }
+
+/** A finished download smaller than this (1 MiB) is not a real video. */
+const val MIN_VIDEO_BYTES = 1024L * 1024L
 
 const val DEFAULT_MAX_CONCURRENT_DOWNLOADS = 3
 const val MIN_CONCURRENT_DOWNLOADS = 1

@@ -104,6 +104,7 @@ import dev.chrisbanes.haze.hazeSource
 import dev.chrisbanes.haze.rememberHazeState
 import com.nuvio.app.features.details.components.BulkDownloadOption
 import com.nuvio.app.features.details.components.BulkDownloadOptionsSheet
+import com.nuvio.app.features.details.components.BulkEpisodePickerSheet
 import com.nuvio.app.features.details.components.DetailActions
 import com.nuvio.app.features.details.components.LocalDetailBulkDownloadAction
 import com.nuvio.app.features.downloads.BulkDownloadRequest
@@ -277,6 +278,7 @@ fun MetaDetailsScreen(
     val episodeOverlayHazeState = rememberHazeState()
     var selectedSeasonForActions by remember(type, id) { mutableStateOf<Int?>(null) }
     var showBulkDownloadSheet by remember(type, id) { mutableStateOf(false) }
+    var showBulkEpisodePicker by remember(type, id) { mutableStateOf(false) }
     val downloadsState by remember {
         DownloadsRepository.ensureLoaded()
         DownloadsRepository.uiState
@@ -1564,7 +1566,7 @@ fun MetaDetailsScreen(
                             )
                         }
 
-                        if (showBulkDownloadSheet && onOpenBulkDownload != null) {
+                        if ((showBulkDownloadSheet || showBulkEpisodePicker) && onOpenBulkDownload != null) {
                             val allEpisodesLabel = stringResource(Res.string.bulk_download_option_all)
                             val unwatchedEpisodesLabel = stringResource(Res.string.bulk_download_option_unwatched)
                             val releasedEpisodes = remember(meta, todayIsoDate) {
@@ -1600,41 +1602,64 @@ fun MetaDetailsScreen(
                                 add(BulkDownloadOption(unwatchedEpisodesLabel, unwatchedEpisodes))
                                 addAll(seasonOptions)
                             }.filter { it.episodes.isNotEmpty() }
-                            BulkDownloadOptionsSheet(
-                                options = bulkOptions,
-                                onDismiss = { showBulkDownloadSheet = false },
-                                downloadedCount = completedTitleDownloads.size,
-                                onDeleteAllDownloaded = { pendingSeriesDownloadDelete = true },
-                                onSelect = { option ->
-                                    onOpenBulkDownload(
-                                        BulkDownloadRequest(
-                                            metaType = meta.type,
-                                            metaId = meta.id,
-                                            title = meta.name,
-                                            logo = meta.logo,
-                                            poster = meta.poster,
-                                            background = meta.background,
-                                            scopeLabel = option.label,
-                                            episodes = option.episodes.map { video ->
-                                                BulkEpisodeRef(
-                                                    videoId = video.id.takeIf { it.isNotBlank() }
-                                                        ?: buildPlaybackVideoId(
-                                                            parentMetaId = meta.id,
-                                                            seasonNumber = video.season,
-                                                            episodeNumber = video.episode,
-                                                            fallbackVideoId = video.id,
-                                                        ),
-                                                    seasonNumber = video.season ?: 0,
-                                                    episodeNumber = video.episode ?: 0,
-                                                    title = video.title,
-                                                    thumbnail = video.thumbnail,
-                                                    pauseDescription = video.overview,
-                                                )
-                                            },
-                                        ),
-                                    )
-                                },
-                            )
+                            val openBulk: (String, List<MetaVideo>) -> Unit = { label, chosenEpisodes ->
+                                onOpenBulkDownload(
+                                    BulkDownloadRequest(
+                                        metaType = meta.type,
+                                        metaId = meta.id,
+                                        title = meta.name,
+                                        logo = meta.logo,
+                                        poster = meta.poster,
+                                        background = meta.background,
+                                        scopeLabel = label,
+                                        episodes = chosenEpisodes.map { video ->
+                                            BulkEpisodeRef(
+                                                videoId = video.id.takeIf { it.isNotBlank() }
+                                                    ?: buildPlaybackVideoId(
+                                                        parentMetaId = meta.id,
+                                                        seasonNumber = video.season,
+                                                        episodeNumber = video.episode,
+                                                        fallbackVideoId = video.id,
+                                                    ),
+                                                seasonNumber = video.season ?: 0,
+                                                episodeNumber = video.episode ?: 0,
+                                                title = video.title,
+                                                thumbnail = video.thumbnail,
+                                                pauseDescription = video.overview,
+                                            )
+                                        },
+                                    ),
+                                )
+                            }
+                            // The options close when "Choose episodes" opens the picker, which stands on its own.
+                            if (showBulkDownloadSheet) {
+                                BulkDownloadOptionsSheet(
+                                    options = bulkOptions,
+                                    onDismiss = { showBulkDownloadSheet = false },
+                                    downloadedCount = completedTitleDownloads.size,
+                                    onDeleteAllDownloaded = { pendingSeriesDownloadDelete = true },
+                                    onSelect = { option -> openBulk(option.label, option.episodes) },
+                                    onChooseEpisodes = { showBulkEpisodePicker = true }.takeIf { releasedEpisodes.size > 1 },
+                                )
+                            }
+                            if (showBulkEpisodePicker) {
+                                val chosenLabel = stringResource(Res.string.bulk_download_option_chosen)
+                                BulkEpisodePickerSheet(
+                                    episodes = releasedEpisodes,
+                                    isWatched = { episode ->
+                                        isEpisodeWatchedForActions(
+                                            meta = meta,
+                                            episode = episode,
+                                            watchedKeys = watchedUiState.watchedKeys,
+                                            progressByVideoId = progressByVideoId,
+                                        )
+                                    },
+                                    onDismiss = { showBulkEpisodePicker = false },
+                                    onConfirm = { chosen ->
+                                        openBulk(chosenLabel, chosen)
+                                    },
+                                )
+                            }
                         }
 
                         if (inAppTrailerPlaybackEnabled) {
