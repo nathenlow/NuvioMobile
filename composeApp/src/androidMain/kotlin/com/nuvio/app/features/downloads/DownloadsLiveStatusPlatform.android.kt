@@ -33,6 +33,8 @@ internal actual object DownloadsLiveStatusPlatform {
     private var appContext: Context? = null
     private var lastQueueState: String? = null
     private val reportedFailures = mutableSetOf<String>()
+    // The status each download had at the last update, to tell a download that just failed from one that was already failed.
+    private val knownStatuses = mutableMapOf<String, DownloadStatus>()
 
     fun initialize(context: Context) {
         appContext = context.applicationContext
@@ -164,8 +166,18 @@ internal actual object DownloadsLiveStatusPlatform {
     private fun reportFailures(context: Context, manager: NotificationManagerCompat, items: List<DownloadItem>, live: DownloadItem?) {
         val failed = items.filter { it.status == DownloadStatus.Failed }
         reportedFailures.retainAll(failed.map { it.id }.toSet())
-        // Only a failure that just happened, not the ones already in the list when the app opens.
-        val fresh = live?.takeIf { it.status == DownloadStatus.Failed && it.id !in reportedFailures } ?: return
+        // Only a failure that just happened, not the ones already in the list when the app opens. One that
+        // the app rejects after the transfer finished (a file too small to be a video) counts too: it
+        // was known as downloading or finished a moment before.
+        val justFailed = failed.filter { item ->
+            val before = knownStatuses[item.id]
+            before != null && before != DownloadStatus.Failed
+        }
+        val fresh = (listOfNotNull(live?.takeIf { it.status == DownloadStatus.Failed }) + justFailed)
+            .firstOrNull { it.id !in reportedFailures }
+        knownStatuses.clear()
+        items.forEach { knownStatuses[it.id] = it.status }
+        if (fresh == null) return
         reportedFailures += fresh.id
         val many = failed.size > 1
         manager.notify(
