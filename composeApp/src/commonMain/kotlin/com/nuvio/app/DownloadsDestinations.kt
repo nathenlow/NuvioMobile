@@ -75,8 +75,8 @@ internal fun BulkDownloadDestination(
                 .progressForVideo(
                     videoId = ref.videoId,
                     parentMetaId = request.metaId,
-                    seasonNumber = ref.seasonNumber,
-                    episodeNumber = ref.episodeNumber,
+                    seasonNumber = request.seasonOf(ref),
+                    episodeNumber = request.episodeOf(ref),
                 )
                 ?.takeIf { it.isResumable }
             val launchId = StreamLaunchStore.put(
@@ -90,9 +90,9 @@ internal fun BulkDownloadDestination(
                     logo = request.logo,
                     poster = request.poster,
                     background = request.background,
-                    seasonNumber = ref.seasonNumber,
-                    episodeNumber = ref.episodeNumber,
-                    episodeTitle = ref.title,
+                    seasonNumber = request.seasonOf(ref),
+                    episodeNumber = request.episodeOf(ref),
+                    episodeTitle = ref.title.takeUnless { request.isMovie },
                     episodeThumbnail = ref.thumbnail,
                     pauseDescription = ref.pauseDescription,
                     resumePositionMs = progress?.lastPositionMs,

@@ -48,7 +48,19 @@ data class BulkDownloadRequest(
     /** What was asked for, such as "Season 2" or "Unwatched episodes". */
     val scopeLabel: String,
     val episodes: List<BulkEpisodeRef>,
-)
+) {
+    /** A movie is one item with no season or episode. */
+    val isMovie: Boolean get() = metaType.equals("movie", ignoreCase = true)
+
+    /** The season to ask streams and downloads for; none for a movie. */
+    fun seasonOf(ref: BulkEpisodeRef): Int? = ref.seasonNumber.takeUnless { isMovie }
+
+    fun episodeOf(ref: BulkEpisodeRef): Int? = ref.episodeNumber.takeUnless { isMovie }
+
+    /** The key a finished download of this item is listed under (see DownloadItem.logicalContentKey). */
+    fun downloadKeyOf(ref: BulkEpisodeRef): String =
+        if (isMovie) "${metaId.trim()}|movie" else "${metaId.trim()}|${ref.seasonNumber}|${ref.episodeNumber}"
+}
 
 enum class BulkFetchStatus {
     /** Queued behind other episodes. */
@@ -94,7 +106,7 @@ class BulkDownloadSession(val request: BulkDownloadRequest) {
         DownloadsRepository.ensureLoaded()
         val existingKeys = DownloadsRepository.uiState.value.items.mapTo(hashSetOf()) { it.logicalContentKey }
         return request.episodes.map { ref ->
-            val downloaded = "${request.metaId.trim()}|${ref.seasonNumber}|${ref.episodeNumber}" in existingKeys
+            val downloaded = request.downloadKeyOf(ref) in existingKeys
             BulkEpisodeState(
                 ref = ref,
                 status = if (downloaded) BulkFetchStatus.Skipped else BulkFetchStatus.Waiting,
@@ -131,8 +143,8 @@ class BulkDownloadSession(val request: BulkDownloadRequest) {
                     StreamsRepository.fetchStreamGroups(
                         type = request.metaType,
                         videoId = ref.videoId,
-                        season = ref.seasonNumber,
-                        episode = ref.episodeNumber,
+                        season = request.seasonOf(ref),
+                        episode = request.episodeOf(ref),
                         forceRefresh = forceRefresh,
                     )
                 } catch (error: CancellationException) {
@@ -205,7 +217,7 @@ class BulkDownloadSession(val request: BulkDownloadRequest) {
             // the cache status an addon reports can be wrong or still unknown.
             repeat(MAX_NOT_CACHED_RETRIES + 1) {
                 if (resolvedStream != null) return@repeat
-                when (val outcome = resolveDownloadableStream(stream, state.ref.seasonNumber, state.ref.episodeNumber, toastNotCached = false)) {
+                when (val outcome = resolveDownloadableStream(stream, request.seasonOf(state.ref), request.episodeOf(state.ref), toastNotCached = false)) {
                     is StreamResolution.Playable -> resolvedStream = outcome.stream
                     StreamResolution.NotCached -> {
                         tried += stream
@@ -228,8 +240,8 @@ class BulkDownloadSession(val request: BulkDownloadRequest) {
                 logo = request.logo,
                 poster = request.poster,
                 background = request.background,
-                seasonNumber = state.ref.seasonNumber,
-                episodeNumber = state.ref.episodeNumber,
+                seasonNumber = request.seasonOf(state.ref),
+                episodeNumber = request.episodeOf(state.ref),
                 episodeTitle = state.ref.title,
                 episodeThumbnail = state.ref.thumbnail,
                 stream = playable,

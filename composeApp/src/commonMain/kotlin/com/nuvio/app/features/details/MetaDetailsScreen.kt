@@ -498,12 +498,46 @@ fun MetaDetailsScreen(
         }
     }
 
+    // A movie has nothing to pick from: the download page opens with the movie as its only item.
+    val movieScopeLabel = stringResource(Res.string.media_movie)
+    val movieDownloadAction: (() -> Unit)? = displayedMeta
+        ?.takeIf { it.type.equals("movie", ignoreCase = true) && onOpenBulkDownload != null }
+        ?.let { movie ->
+            {
+                onOpenBulkDownload?.invoke(
+                    BulkDownloadRequest(
+                        metaType = movie.type,
+                        metaId = movie.id,
+                        title = movie.name,
+                        logo = movie.logo,
+                        poster = movie.poster,
+                        background = movie.background,
+                        scopeLabel = movieScopeLabel,
+                        episodes = listOf(
+                            BulkEpisodeRef(
+                                videoId = buildPlaybackVideoId(
+                                    parentMetaId = movie.id,
+                                    seasonNumber = null,
+                                    episodeNumber = null,
+                                    fallbackVideoId = movie.id,
+                                ),
+                                seasonNumber = 0,
+                                episodeNumber = 0,
+                                title = movie.name,
+                                thumbnail = null,
+                                pauseDescription = movie.description,
+                            ),
+                        ),
+                    ),
+                )
+            }
+        }
     CompositionLocalProvider(
         LocalDownloadedEpisodeKeys provides downloadedEpisodeKeys,
         LocalDetailBulkDownloadAction provides if (bulkDownloadAvailable) {
             { showBulkDownloadSheet = true }
         } else {
-            null
+            movieDownloadAction
         },
     ) {
     Box(

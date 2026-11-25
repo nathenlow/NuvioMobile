@@ -114,11 +114,14 @@ fun BulkDownloadScreen(
                 title = request.title,
                 onBack = onBack,
                 actions = {
-                    IconButton(onClick = { confirmCancelSeries = true }) {
-                        Icon(
-                            imageVector = Icons.Rounded.Close,
-                            contentDescription = stringResource(Res.string.bulk_download_cancel_series),
-                        )
+                    // Cancelling a whole series makes no sense for a single movie.
+                    if (!request.isMovie) {
+                        IconButton(onClick = { confirmCancelSeries = true }) {
+                            Icon(
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = stringResource(Res.string.bulk_download_cancel_series),
+                            )
+                        }
                     }
                     IconButton(onClick = session::reloadAll) {
                         Icon(
@@ -206,11 +209,10 @@ fun BulkDownloadScreen(
         }
 
         items(items = episodes, key = { it.ref.videoId }) { state ->
-            val download = downloadByKey[
-                "${request.metaId.trim()}|${state.ref.seasonNumber}|${state.ref.episodeNumber}",
-            ]
+            val download = downloadByKey[request.downloadKeyOf(state.ref)]
             BulkEpisodeRow(
                 state = state,
+                heading = request.headingOf(state.ref),
                 download = download,
                 onToggleIncluded = { session.setIncluded(state.ref.videoId, !state.included) },
                 onClick = {
@@ -256,6 +258,7 @@ fun BulkDownloadScreen(
     if (actionsEpisode != null) {
         EpisodeActionsSheet(
             state = actionsEpisode,
+            heading = request.headingOf(actionsEpisode.ref),
             onDismiss = { actionsFor = null },
             onPlay = { stream -> onPlayStream(actionsEpisode, stream) },
             onSwitch = { switchFor = actionsEpisode.ref.videoId },
@@ -267,10 +270,7 @@ fun BulkDownloadScreen(
     val switchEpisode = switchFor?.let { id -> episodes.firstOrNull { it.ref.videoId == id } }
     if (switchEpisode != null) {
         StreamSwitchSheet(
-            subtitle = listOfNotNull(
-                localizedSeasonEpisodeCode(switchEpisode.ref.seasonNumber, switchEpisode.ref.episodeNumber),
-                localizedEpisodeTitle(switchEpisode.ref.title, switchEpisode.ref.episodeNumber),
-            ).joinToString(" · "),
+            subtitle = request.headingOf(switchEpisode.ref),
             groups = switchEpisode.groups,
             loading = switchEpisode.status == BulkFetchStatus.Loading || switchEpisode.status == BulkFetchStatus.Waiting,
             selected = switchEpisode.selected,
@@ -284,13 +284,11 @@ fun BulkDownloadScreen(
 @Composable
 private fun BulkEpisodeRow(
     state: BulkEpisodeState,
+    heading: String,
     download: DownloadItem?,
     onToggleIncluded: () -> Unit,
     onClick: () -> Unit,
 ) {
-    val code = localizedSeasonEpisodeCode(state.ref.seasonNumber, state.ref.episodeNumber).orEmpty()
-    val episodeTitle = localizedEpisodeTitle(state.ref.title, state.ref.episodeNumber)
-    val heading = listOfNotNull(code.takeIf { it.isNotBlank() }, episodeTitle).joinToString(" · ")
     val stream = state.selected
 
     Surface(
@@ -381,6 +379,7 @@ private fun rowStatusText(state: BulkEpisodeState, download: DownloadItem?): Str
 @Composable
 private fun EpisodeActionsSheet(
     state: BulkEpisodeState,
+    heading: String,
     onDismiss: () -> Unit,
     onPlay: (StreamItem) -> Unit,
     onSwitch: () -> Unit,
@@ -401,10 +400,7 @@ private fun EpisodeActionsSheet(
                 .padding(bottom = nuvioSafeBottomPadding(16.dp)),
         ) {
             SheetHeader(
-                title = listOfNotNull(
-                    localizedSeasonEpisodeCode(state.ref.seasonNumber, state.ref.episodeNumber),
-                    localizedEpisodeTitle(state.ref.title, state.ref.episodeNumber),
-                ).joinToString(" · "),
+                title = heading,
                 subtitle = null,
             )
             if (stream != null) {
@@ -481,3 +477,15 @@ private fun SheetHeader(title: String, subtitle: String?) {
         }
     }
 }
+
+/** What an item is called on the page: the movie's name, or an episode's code and title. */
+@Composable
+private fun BulkDownloadRequest.headingOf(ref: BulkEpisodeRef): String =
+    if (isMovie) {
+        ref.title?.takeIf { it.isNotBlank() } ?: title
+    } else {
+        listOfNotNull(
+            localizedSeasonEpisodeCode(ref.seasonNumber, ref.episodeNumber)?.takeIf { it.isNotBlank() },
+            localizedEpisodeTitle(ref.title, ref.episodeNumber),
+        ).joinToString(" · ")
+    }
