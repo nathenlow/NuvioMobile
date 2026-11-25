@@ -581,6 +581,9 @@
     <string name="settings_advanced_clear_cw_cache">Clear Continue Watching Cache</string>
     <string name="settings_advanced_clear_cw_cache_subtitle">Remove cached Continue Watching data and refresh watch progress</string>
     <string name="settings_advanced_clear_cw_cache_done">Cache cleared</string>
+    <string name="settings_advanced_clear_image_cache">Clear image cache</string>
+    <string name="settings_advanced_clear_image_cache_subtitle">Reload posters and cover images that still show an old picture</string>
+    <string name="settings_advanced_clear_image_cache_done">Image cache cleared</string>
     <string name="settings_licenses_attributions_section_app">APP LICENSE</string>
     <string name="settings_licenses_attributions_section_data">DATA &amp; SERVICES</string>
     <string name="settings_licenses_attributions_section_playback">PLAYBACK LICENSE</string>

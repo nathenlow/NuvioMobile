@@ -36,6 +36,9 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import coil3.SingletonImageLoader
+import coil3.compose.LocalPlatformContext
+import kotlinx.coroutines.Dispatchers
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.text.font.FontWeight
@@ -68,6 +71,9 @@ import nuvio.composeapp.generated.resources.downloads_verify_unmatched
 import nuvio.composeapp.generated.resources.settings_advanced_section_downloads
 import nuvio.composeapp.generated.resources.action_cancel
 import nuvio.composeapp.generated.resources.settings_advanced_clear_cw_cache
+import nuvio.composeapp.generated.resources.settings_advanced_clear_image_cache
+import nuvio.composeapp.generated.resources.settings_advanced_clear_image_cache_done
+import nuvio.composeapp.generated.resources.settings_advanced_clear_image_cache_subtitle
 import nuvio.composeapp.generated.resources.settings_advanced_clear_cw_cache_done
 import nuvio.composeapp.generated.resources.settings_advanced_clear_cw_cache_subtitle
 import nuvio.composeapp.generated.resources.settings_advanced_remember_last_profile
@@ -177,6 +183,28 @@ internal fun LazyListScope.advancedSettingsContent(
                                     ProfileRepository.activeProfileId,
                                 )
                             }
+                        }
+                    },
+                )
+                SettingsGroupDivider(isTablet = isTablet)
+                val platformContext = LocalPlatformContext.current
+                var imagesCleared by rememberSaveable { mutableStateOf(false) }
+                SettingsNavigationRow(
+                    title = stringResource(Res.string.settings_advanced_clear_image_cache),
+                    description = if (imagesCleared) {
+                        stringResource(Res.string.settings_advanced_clear_image_cache_done)
+                    } else {
+                        stringResource(Res.string.settings_advanced_clear_image_cache_subtitle)
+                    },
+                    isTablet = isTablet,
+                    onClick = {
+                        if (!imagesCleared) {
+                            imagesCleared = true
+                            // Posters and cover images are kept by their link, so one that changed behind
+                            // the same link keeps showing the old picture until it is dropped here.
+                            val loader = SingletonImageLoader.get(platformContext)
+                            loader.memoryCache?.clear()
+                            scope.launch(Dispatchers.Default) { loader.diskCache?.clear() }
                         }
                     },
                 )
