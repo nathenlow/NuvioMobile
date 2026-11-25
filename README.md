@@ -16,12 +16,16 @@
 
 This is a fork of [NuvioMedia/NuvioMobile](https://github.com/NuvioMedia/NuvioMobile) that adds:
 
-- Bulk downloads: download a whole season or series, with a queue, pause, resume and cancel all, and reordering.
+- Bulk downloads: download a whole season or series, or only the episodes you tick, with a queue, pause, resume and cancel all, and reordering. Movies have a Download button too.
+- Stream choice for downloads: every stream is shown in full, the selected one is marked, and any unfinished or failed download can be switched to another stream. A finished file under 1 MB is rejected as not a real video.
+- One download notification for the whole queue on Android (the first download, its percent and how many more, with Pause), and a Live Activity on iOS.
 - An offline library for finished downloads.
-- Downloads that keep running with the app closed, on Android and iOS, with a Live Activity on iOS.
+- Downloads that keep running with the app closed, on Android and iOS.
 - Download settings: concurrent download limit, preferred resolution (cached first, then your resolution, then the addon ranking), and SD card or USB storage on Android.
-- Download profiles: pick which stream bulk download chooses with ordered rules and exclusions on cached state, source, resolution, size, addon, quality, codec, HDR, audio, language and edition. Includes built-in profiles, duplicate, import and export.
+- Download profiles: pick which stream bulk download chooses with ordered rules and exclusions on cached state, source, resolution, size, addon, quality, codec, HDR, audio, language and edition. Includes built-in profiles, duplicate, import and export, and stream format markers that teach the app what the symbols in an AIOStreams name template mean (for example which one marks an uncached stream).
 - A labelled action row on the details page: Library, Watched, Download, Shuffle and Sources.
+- Library Downloaded and History views: the History view lists everything you watched, including unfinished titles, as shelves or a grid with sort, status and type filters, View all, paging, refresh and removal from your Nuvio account history.
+- Settings > Advanced > Clear image cache, and saved posters and cover images are rechecked with the server after a week, so a replaced picture shows up.
 - Audio subtitle sync: when subtitle auto sync finds no match, it listens to the stream's audio, finds the dialogue and aligns the subtitles to it. Progress shows on the subtitle card.
 
 It follows upstream `cmp-rewrite` and is not affiliated with the Nuvio team.
