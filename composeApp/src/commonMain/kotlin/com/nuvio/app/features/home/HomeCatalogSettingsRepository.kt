@@ -5,8 +5,6 @@ import com.nuvio.app.features.addons.ManagedAddon
 import com.nuvio.app.features.collection.Collection
 import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.servers.ServerCatalog
-import com.nuvio.app.features.watched.isHiddenByDefaultCatalog
-import com.nuvio.app.features.watched.isWatchHistoryCatalogKey
 import com.nuvio.app.features.servers.ServerRepository
 import kotlinx.atomicfu.atomic
 import kotlinx.coroutines.runBlocking
@@ -303,7 +301,7 @@ object HomeCatalogSettingsRepository {
             heroEnabled = parsedPayload.heroEnabled
             showCatalogType = parsedPayload.showCatalogType
             hideUnreleasedContent = parsedPayload.hideUnreleasedContent
-            preferences = parsedPayload.items.associateBy { it.key }
+            preferences = parsedPayload.items.filterNot { it.key == REMOVED_WATCH_HISTORY_KEY }.associateBy { it.key }
             publish()
             return
         }
@@ -312,7 +310,7 @@ object HomeCatalogSettingsRepository {
             json.decodeFromString<List<StoredHomeCatalogPreference>>(payload)
         }.getOrDefault(emptyList())
 
-        preferences = legacyItems.associateBy { it.key }
+        preferences = legacyItems.filterNot { it.key == REMOVED_WATCH_HISTORY_KEY }.associateBy { it.key }
         publish()
     }
 
@@ -356,7 +354,7 @@ object HomeCatalogSettingsRepository {
             normalized[entry.key] = StoredHomeCatalogPreference(
                 key = entry.key,
                 customTitle = stored?.customTitle.orEmpty(),
-                enabled = stored?.enabled ?: !isHiddenByDefaultCatalog(entry.key),
+                enabled = stored?.enabled ?: true,
                 heroSourceEnabled = heroSourceEnabled,
                 order = stored?.order ?: nextOrder++,
             )
@@ -374,7 +372,7 @@ object HomeCatalogSettingsRepository {
                     defaultTitle = definition.defaultTitle,
                     addonName = definition.addonName,
                     customTitle = preference?.customTitle.orEmpty(),
-                    enabled = preference?.enabled ?: !isHiddenByDefaultCatalog(definition.key),
+                    enabled = preference?.enabled ?: true,
                     heroSourceEnabled = preference?.heroSourceEnabled ?: true,
                     order = preference?.order ?: 0,
                 )
@@ -479,7 +477,7 @@ object HomeCatalogSettingsRepository {
         ensureLoaded()
         val catalogDefinitionsByKey = definitions.associateBy { it.key }
         val collectionDefinitionsByKey = collectionDefinitions.associateBy { it.key }
-        val items = preferences.values.filterNot { ServerCatalog.isServerKey(it.key) || isWatchHistoryCatalogKey(it.key) }.sortedBy { it.order }.map { pref ->
+        val items = preferences.values.filterNot { ServerCatalog.isServerKey(it.key) }.sortedBy { it.order }.map { pref ->
             val catalogDefinition = catalogDefinitionsByKey[pref.key]
             val collectionDefinition = collectionDefinitionsByKey[pref.key]
             val isCollection = collectionDefinition != null || pref.key.startsWith("collection_")
@@ -647,3 +645,6 @@ private data class CatalogSyncInput(
     val locale: String,
     val serverRevision: Int,
 )
+
+/** The key of the "Watch history" Home catalog that earlier versions had; a saved setting for it is dropped. */
+private const val REMOVED_WATCH_HISTORY_KEY = "nuvio:history:watched"

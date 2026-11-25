@@ -57,10 +57,6 @@ object CatalogRepository {
             observeInternalLibrary(request)
             return
         }
-        if (target is CatalogTarget.WatchHistory) {
-            observeWatchHistory(request)
-            return
-        }
         if (target is CatalogTarget.LibraryHistory) {
             observeLibraryHistory(request, target)
             return
@@ -74,22 +70,6 @@ object CatalogRepository {
             reset = true,
             forceRefresh = force,
         )
-    }
-
-    private fun observeWatchHistory(request: CatalogRequest) {
-        activeJob?.cancel()
-        _uiState.value = CatalogUiState(isLoading = true)
-        activeJob = scope.launch {
-            launch { WatchHistoryRepository.refresh() }
-            combine(WatchHistoryRepository.items, WatchHistoryRepository.hasMore, ::Pair).collect { (items, hasMore) ->
-                if (activeRequest != request) return@collect
-                _uiState.value = CatalogUiState(
-                    items = items,
-                    isLoading = false,
-                    nextSkip = items.size.takeIf { hasMore },
-                )
-            }
-        }
     }
 
     // How many titles of a History or Downloaded shelf are shown; grows by a page as the grid is scrolled.
@@ -152,10 +132,6 @@ object CatalogRepository {
         val request = activeRequest ?: return
         val current = _uiState.value
         if (current.isLoading || current.nextSkip == null) return
-        if (request.target is CatalogTarget.WatchHistory) {
-            WatchHistoryRepository.loadMore()
-            return
-        }
         if (request.target is CatalogTarget.LibraryHistory || request.target is CatalogTarget.Downloaded) {
             shownLimit.value += LIBRARY_GRID_PAGE_SIZE
             return
@@ -261,7 +237,7 @@ object CatalogRepository {
 
                     is CatalogTarget.Server -> ServerCatalog.page(target, skip = requestedSkip)
 
-                    is CatalogTarget.Library, CatalogTarget.WatchHistory,
+                    is CatalogTarget.Library,
                     is CatalogTarget.LibraryHistory, is CatalogTarget.Downloaded -> error(getString(Res.string.catalog_load_failed))
                 }.withUnreleasedFilter(request.hideUnreleasedContent)
             }.fold(

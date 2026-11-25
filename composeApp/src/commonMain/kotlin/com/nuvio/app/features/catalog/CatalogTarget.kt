@@ -25,12 +25,6 @@ sealed interface CatalogTarget {
         override val supportsPagination: Boolean = false
     }
 
-    /** The watch history stored on the Nuvio server (the "Watch history" Home catalog). */
-    data object WatchHistory : CatalogTarget {
-        override val contentType: String = "movie"
-        override val supportsPagination: Boolean = false
-    }
-
     /** One shelf of the library's History view, opened with its View all (Movie or Series). */
     data class LibraryHistory(
         override val contentType: String,

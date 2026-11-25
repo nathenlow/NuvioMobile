@@ -15,8 +15,6 @@ import com.nuvio.app.features.collection.TmdbCollectionSourceResolver
 import com.nuvio.app.features.collection.catalogRouteKey
 import com.nuvio.app.features.collection.findCollectionCatalog
 import com.nuvio.app.features.servers.ServerCatalog
-import com.nuvio.app.features.watched.isWatchHistoryCatalogKey
-import com.nuvio.app.features.watched.watchHistorySection
 import com.nuvio.app.features.trakt.TraktPublicListSourceResolver
 import com.nuvio.app.features.watchprogress.CurrentDateProvider
 import kotlinx.coroutines.CoroutineScope
@@ -262,8 +260,6 @@ object HomeRepository {
 
     private suspend fun HomeCatalogDefinition.toSection(forceRefresh: Boolean): HomeCatalogSection {
         serverConnectionId?.let { connectionId -> return toServerSection(connectionId) }
-        // Built from the watched list when Home draws it, so it follows changes at once.
-        if (isWatchHistoryCatalogKey(key)) return watchHistorySection(emptyList(), defaultTitle)
         CustomPosterUrlRepository.ensureLoaded()
         val pattern = CustomPosterUrlRepository.patternForScreen(com.nuvio.app.core.poster.CustomPosterScreen.HOME)
         val page = fetchCatalogPage(

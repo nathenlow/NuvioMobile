@@ -17,7 +17,6 @@ import com.nuvio.app.features.collection.CollectionRepository
 import com.nuvio.app.features.collection.CollectionSource
 import com.nuvio.app.features.collection.CollectionStorage
 import com.nuvio.app.features.profiles.ProfileRepository
-import com.nuvio.app.features.watched.isWatchHistoryCatalogKey
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.runBlocking
 import kotlinx.coroutines.withTimeout
@@ -67,10 +66,6 @@ class HomeCatalogSettingsRepositoryTest {
         HomeRepository.clear()
     }
 
-    /** The catalog entries that come from add-ons: the built-in Watch history entry is listed beside them. */
-    private fun addonCatalogItems() = HomeCatalogSettingsRepository.uiState.value.items
-        .filterNot { isWatchHistoryCatalogKey(it.key) }
-
     @Test
     fun unchangedCatalogsDoNotRewriteSettings() {
         val addons = listOf(addon())
@@ -80,17 +75,22 @@ class HomeCatalogSettingsRepositoryTest {
         HomeCatalogSettingsRepository.syncCatalogs(addons.map { it.copy() })
 
         assertEquals(editCount, preferences.editCount)
-        assertEquals("test:movie:popular", addonCatalogItems().single().key)
+        assertEquals("test:movie:popular", HomeCatalogSettingsRepository.uiState.value.items.single().key)
     }
 
     @Test
-    fun watchHistoryIsOfferedButSwitchedOffUntilTheUserTurnsItOn() {
-        HomeCatalogSettingsRepository.syncCatalogs(listOf(addon()))
+    fun aSavedSettingForTheRemovedWatchHistoryCatalogIsDropped() {
+        // An earlier version offered a "Watch history" Home catalog; a setting saved for it must not linger.
+        preferences.edit().putString(
+            "catalog_settings_payload_${ProfileRepository.activeProfileId}",
+            """{"items":[{"key":"nuvio:history:watched","enabled":true,"order":0},{"key":"test:movie:popular","order":1}]}""",
+        ).commit()
+        HomeCatalogSettingsRepository.clearLocalState()
 
-        val watchHistory = HomeCatalogSettingsRepository.uiState.value.items
-            .single { isWatchHistoryCatalogKey(it.key) }
-        assertFalse(watchHistory.enabled)
-        assertTrue(addonCatalogItems().single().enabled)
+        val kept = HomeCatalogSettingsRepository.snapshot().preferences.keys
+        assertFalse("nuvio:history:watched" in kept)
+        assertTrue("test:movie:popular" in kept)
+        assertTrue(HomeCatalogSettingsRepository.exportToSyncPayload().items.none { it.key == "nuvio:history:watched" })
     }
 
     @Test
@@ -130,7 +130,7 @@ class HomeCatalogSettingsRepositoryTest {
         HomeCatalogSettingsRepository.syncCatalogs(addons)
 
         assertTrue(HomeCatalogSettingsRepository.uiState.value.items.none { it.isCollection })
-        assertEquals("test:movie:popular", addonCatalogItems().single().key)
+        assertEquals("test:movie:popular", HomeCatalogSettingsRepository.uiState.value.items.single().key)
     }
 
     @Test

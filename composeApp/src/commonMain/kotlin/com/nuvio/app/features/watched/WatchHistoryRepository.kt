@@ -1,6 +1,5 @@
 package com.nuvio.app.features.watched
 
-import com.nuvio.app.features.catalog.CatalogPage
 import com.nuvio.app.features.details.MetaDetailsRepository
 import com.nuvio.app.features.home.MetaPreview
 import com.nuvio.app.features.profiles.MAX_PROFILES
@@ -14,11 +13,8 @@ import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
-import kotlinx.coroutines.flow.MutableSharedFlow
 import kotlinx.coroutines.flow.MutableStateFlow
-import kotlinx.coroutines.flow.SharedFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asSharedFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.sync.Mutex
@@ -31,27 +27,17 @@ import kotlinx.serialization.decodeFromString
 import kotlinx.serialization.json.Json
 
 private const val PULL_PAGE_SIZE = 500
-private const val HISTORY_PAGE_SIZE = 30
 private const val POSTER_LOOKUPS_AT_ONCE = 6
 
 /**
- * The watch history stored on the Nuvio server, newest first, one entry per title.
- * Titles are shown a page at a time: [items] holds the pages loaded so far and [hasMore] says
- * whether older titles remain for [loadMore].
+ * What the library's History view needs from the Nuvio server's watch history: the full list of
+ * titles (to delete them from the account), the posters looked up for them, and the newest of those
+ * kept on disk.
  */
 object WatchHistoryRepository {
-    private val _items = MutableStateFlow<List<MetaPreview>>(emptyList())
-    val items: StateFlow<List<MetaPreview>> = _items.asStateFlow()
-    private val _hasMore = MutableStateFlow(false)
-    val hasMore: StateFlow<Boolean> = _hasMore.asStateFlow()
-
     private val _titleKeys = MutableStateFlow<Set<String>>(emptySet())
-    /** Every title in the history (not just the pages loaded), for "is this in my history?" checks. */
+    /** Every title in the history, for "is this in my history?" checks. */
     val titleKeys: StateFlow<Set<String>> = _titleKeys.asStateFlow()
-
-    private val _removed = MutableSharedFlow<MetaPreview>(extraBufferCapacity = 8)
-    /** Emits each title taken out of the history, so screens holding their own copy can drop it. */
-    val removed: SharedFlow<MetaPreview> = _removed.asSharedFlow()
 
     private val artworkJson = Json { ignoreUnknownKeys = true }
     private var artworkProfileId: Int? = null
@@ -72,13 +58,13 @@ object WatchHistoryRepository {
     // Outlives any dialog or screen, so a delete is not cancelled when its dialog closes.
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Default)
     private var serverItems: List<WatchedItem> = emptyList()
-    private var visibleCount = HISTORY_PAGE_SIZE
     private val _artwork = MutableStateFlow<Map<String, MetaPreview>>(emptyMap())
     /** Posters and details looked up for history titles, keyed "type:id". The server stores no artwork. */
     val artwork: StateFlow<Map<String, MetaPreview>> = _artwork.asStateFlow()
 
-    suspend fun refresh() = mutex.withLock {
-        if (pullFromServer()) publish()
+    /** Pulls the history from the server; a failed pull keeps what was there. */
+    suspend fun refresh() {
+        mutex.withLock { pullFromServer() }
     }
 
     /** Loads the whole history from the server; returns false (keeping what we had) when that fails. */
@@ -147,29 +133,6 @@ object WatchHistoryRepository {
         _artwork.value = emptyMap()
     }
 
-    /** One page of titles by offset, for callers that page themselves (collection folders). */
-    suspend fun page(skip: Int, limit: Int = HISTORY_PAGE_SIZE): CatalogPage = mutex.withLock {
-        if (skip == 0 && !pullFromServer() && serverItems.isEmpty()) error("Watch history could not be loaded")
-        val titles = titles()
-        val slice = titles.drop(skip).take(limit)
-        resolvePreviews(slice)
-        CatalogPage(
-            items = slice.map(::preview),
-            rawItemCount = slice.size,
-            nextSkip = (skip + slice.size).takeIf { it < titles.size },
-        )
-    }
-
-    fun loadMore() {
-        scope.launch {
-            mutex.withLock {
-                if (!_hasMore.value) return@withLock
-                visibleCount += HISTORY_PAGE_SIZE
-                publish()
-            }
-        }
-    }
-
     fun requestRemove(meta: MetaPreview) {
         scope.launch { remove(meta) }
     }
@@ -192,16 +155,6 @@ object WatchHistoryRepository {
         WatchedRepository.unmarkWatchedLocally((matches + local).distinct())
         WatchProgressRepository.removeProgress(meta.id)
         setServerItems(serverItems - matches.toSet())
-        _removed.emit(meta)
-        publish()
-    }
-
-    private suspend fun publish() {
-        val titles = titles()
-        val shown = titles.take(visibleCount)
-        _hasMore.value = titles.size > shown.size
-        _items.value = shown.map(::preview)
-        if (resolvePreviews(shown)) _items.value = shown.map(::preview)
     }
 
     /** One entry per title, newest first. */
@@ -235,15 +188,6 @@ object WatchHistoryRepository {
         }
         return found.isNotEmpty()
     }
-
-    private fun preview(item: WatchedItem): MetaPreview =
-        _artwork.value[item.cacheKey()] ?: MetaPreview(
-            id = item.id,
-            type = item.type,
-            name = item.name,
-            poster = item.poster,
-            releaseInfo = item.releaseInfo,
-        )
 
     private fun WatchedItem.cacheKey() = "$type:$id"
 }
