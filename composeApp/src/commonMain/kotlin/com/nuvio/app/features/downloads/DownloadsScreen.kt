@@ -238,7 +238,8 @@ fun DownloadsScreen(
         onMoveToTop = unfinishedItem?.let { { DownloadsRepository.moveToTop(it.id) } },
         onMoveSeriesToTop = unfinishedEpisode?.let { { DownloadsRepository.moveSeriesToTop(it.parentMetaId) } },
         onCancelSeries = unfinishedEpisode?.let { { cancelUnfinished(it.parentMetaId) } },
-        onSwitchStream = actionsItem?.takeIf { it.status == DownloadStatus.Failed }?.let { { switchItemId = it.id } },
+        // Any download that is not finished, not only a failed one, can be moved to another stream.
+        onSwitchStream = unfinishedItem?.let { { switchItemId = it.id } },
     )
 
     val switchItem = switchItemId?.let { id -> uiState.items.firstOrNull { it.id == id } }

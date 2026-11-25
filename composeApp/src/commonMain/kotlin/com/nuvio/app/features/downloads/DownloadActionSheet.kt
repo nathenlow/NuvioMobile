@@ -60,7 +60,7 @@ internal fun DownloadActionSheet(
     onMoveToTop: (() -> Unit)? = null,
     onMoveSeriesToTop: (() -> Unit)? = null,
     onCancelSeries: (() -> Unit)? = null,
-    /** Offered for a failed download: try another stream of the episode. */
+    /** Offered for a download that is not finished: restart it with another stream of the episode. */
     onSwitchStream: (() -> Unit)? = null,
 ) {
     if (item == null) return
