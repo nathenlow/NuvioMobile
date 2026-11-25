@@ -5,6 +5,16 @@ import co.touchlab.kermit.Logger
 internal val PlayerScreenRuntime.subtitleStyle: SubtitleStyleState
     get() = playerSettingsUiState.subtitleStyle
 
+internal val PlayerScreenRuntime.isAssSubtitleStyleActive: Boolean
+    get() {
+        if (playerController?.rendersAssNatively != true) return false
+        if (useCustomSubtitles) return selectedAddonSubtitle?.formatBadge == SubtitleFormatBadge.ASS
+        return subtitleTracks.firstOrNull { it.index == selectedSubtitleIndex }?.formatBadge == SubtitleFormatBadge.ASS
+    }
+
+internal val PlayerScreenRuntime.activeSubtitleStyle: SubtitleStyleState
+    get() = if (isAssSubtitleStyleActive) playerSettingsUiState.assSubtitleStyle else subtitleStyle
+
 internal val PlayerScreenRuntime.activeAddonSubtitleType: String
     get() = contentType ?: parentMetaType
 
@@ -384,7 +394,8 @@ private fun PlayerScreenRuntime.tryAutoSelectPreferredSubtitleFromAvailableTrack
         }
         logSubtitleDecision("off", "no match for ${selectionPlan.targets}")
         disableAutomaticSubtitleSelection()
-        preferredSubtitleSelectionApplied = true
+        // Slower add-ons may still return a match, so only finish once loading is done.
+        preferredSubtitleSelectionApplied = !isLoadingAddonSubtitles
     }
 }
 
