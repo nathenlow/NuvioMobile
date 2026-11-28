@@ -50,6 +50,7 @@ import com.nuvio.app.core.ui.NuvioIconActionButton
 import com.nuvio.app.core.ui.NuvioInfoBadge
 import com.nuvio.app.core.ui.NuvioInputField
 import com.nuvio.app.core.ui.NuvioPrimaryButton
+import com.nuvio.app.core.ui.NuvioToastController
 import com.nuvio.app.core.ui.NuvioScreen
 import com.nuvio.app.core.ui.NuvioScreenHeader
 import com.nuvio.app.core.ui.NuvioSectionLabel
@@ -147,6 +148,23 @@ internal fun AddonsSettingsPageContent(
         )
 
         SectionHeader(stringResource(Res.string.addons_section_installed))
+        val reloadingAllMessage = stringResource(Res.string.addons_reload_all_profiles_done)
+        var reloadingAllProfiles by remember { mutableStateOf(false) }
+        NuvioPrimaryButton(
+            text = stringResource(
+                if (reloadingAllProfiles) Res.string.addons_reload_all_profiles_busy
+                else Res.string.addons_reload_all_profiles,
+            ),
+            enabled = !reloadingAllProfiles,
+            onClick = {
+                reloadingAllProfiles = true
+                coroutineScope.launch {
+                    val count = runCatching { AddonRepository.refreshAllProfiles() }.getOrDefault(0)
+                    reloadingAllProfiles = false
+                    NuvioToastController.show(reloadingAllMessage.replace("%1\$d", count.toString()))
+                }
+            },
+        )
         if (uiState.addons.isEmpty()) {
             EmptyStateCard(usePersonalMediaCopy = usePersonalMediaCopy)
         } else {

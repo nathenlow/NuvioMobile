@@ -219,4 +219,6 @@
     <string name="bulk_download_picker_clear">Clear</string>
     <string name="bulk_download_picker_continue">Continue (%1$d)</string>
     <string name="bulk_download_option_chosen">Chosen episodes</string>
+    <string name="streams_downloaded_label">Downloaded</string>
+    <string name="streams_downloading_label">Downloading</string>
 </resources>

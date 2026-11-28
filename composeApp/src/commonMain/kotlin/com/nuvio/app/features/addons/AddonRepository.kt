@@ -12,6 +12,8 @@ import io.github.jan.supabase.postgrest.rpc
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.async
+import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.delay
@@ -314,6 +316,36 @@ object AddonRepository {
                 forceRefresh = true,
             )
         }
+    }
+
+    /**
+     * Reloads the addons of every profile on the account. Manifests are cached by URL, so the
+     * other profiles pick up the fresh copy when they are opened. Returns how many distinct
+     * addons were reloaded.
+     */
+    suspend fun refreshAllProfiles(): Int {
+        val activeUrls = _uiState.value.addons.map { it.manifestUrl }.toSet()
+        val serverUrls = runCatching {
+            SupabaseProvider.client.postgrest
+                .from("addons")
+                .select()
+                .decodeList<AddonRow>()
+                .map { ensureManifestSuffix(it.url) }
+        }.onFailure { log.e(it) { "refreshAllProfiles() — could not list addons of all profiles" } }
+            .getOrDefault(emptyList())
+        val others = (serverUrls.toSet() - activeUrls).toList()
+        refreshAll()
+        withContext(Dispatchers.Default) {
+            others.chunked(6).forEach { batch ->
+                batch.map { url ->
+                    scope.async {
+                        runCatching { fetchAddonResponseText(url = url, forceRefresh = true) }
+                            .onFailure { log.w { "refreshAllProfiles() — $url failed: ${it.message}" } }
+                    }
+                }.awaitAll()
+            }
+        }
+        return (activeUrls + others).size
     }
 
     fun refreshAddon(

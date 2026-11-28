@@ -24,6 +24,8 @@ This is a fork of [NuvioMedia/NuvioMobile](https://github.com/NuvioMedia/NuvioMo
 - Download settings: concurrent download limit, preferred resolution (cached first, then your resolution, then the addon ranking), and SD card or USB storage on Android.
 - Download profiles: pick which stream bulk download chooses with ordered rules and exclusions on cached state, source, resolution, size, addon, quality, codec, HDR, audio, language and edition. Includes built-in profiles, duplicate, import and export, and stream format markers that teach the app what the symbols in an AIOStreams name template mean (for example which one marks an uncached stream).
 - A labelled action row on the details page: Library, Watched, Download, Shuffle and Sources.
+- Stream lists mark the stream you downloaded (Downloaded, and Playing while you watch the saved file) and put it first, on the details page and in the player's Sources panel.
+- Settings > Content & Discovery > Addons > Reload addons for all profiles refreshes the addons of every profile on the account.
 - Library Downloaded and History views: the History view lists everything you watched, including unfinished titles, as shelves or a grid with sort, status and type filters, View all, paging, refresh and removal from your Nuvio account history.
 - Settings > Advanced > Clear image cache, and saved posters and cover images are rechecked with the server after a week, so a replaced picture shows up.
 - Audio subtitle sync: when subtitle auto sync finds no match, it listens to the stream's audio, finds the dialogue and aligns the subtitles to it. Progress shows on the subtitle card.

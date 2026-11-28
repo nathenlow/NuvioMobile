@@ -25,6 +25,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.nuvio.app.features.debrid.DebridSettingsRepository
+import com.nuvio.app.features.downloads.DownloadItem
+import com.nuvio.app.features.downloads.DownloadStatus
+import com.nuvio.app.features.streams.matchesDownload
 import com.nuvio.app.features.streams.LocalStreamSizeLabelFormat
 import com.nuvio.app.features.streams.StreamBadgeSettingsRepository
 import com.nuvio.app.features.streams.StreamCard
@@ -35,6 +38,8 @@ import com.nuvio.app.features.streams.isSelectableForPlayback
 import com.nuvio.app.features.streams.rememberStreamSizeLabelFormat
 import nuvio.composeapp.generated.resources.Res
 import nuvio.composeapp.generated.resources.compose_player_no_streams_found
+import nuvio.composeapp.generated.resources.streams_downloaded_label
+import nuvio.composeapp.generated.resources.streams_downloading_label
 import org.jetbrains.compose.resources.stringResource
 
 @Composable
@@ -50,6 +55,7 @@ internal fun PlayerStreamList(
     ),
     currentStream: PlayerCurrentStream? = null,
     currentLabel: String? = null,
+    downloadedItem: DownloadItem? = null,
 ) {
     val debridSettings by remember {
         DebridSettingsRepository.ensureLoaded()
@@ -59,7 +65,20 @@ internal fun PlayerStreamList(
         StreamBadgeSettingsRepository.ensureLoaded()
         StreamBadgeSettingsRepository.uiState
     }.collectAsStateWithLifecycle()
-    val streams = streamsUiState.allStreams
+    val allStreams = streamsUiState.allStreams
+    // The stream that was downloaded for this title goes first.
+    val streams = remember(allStreams, downloadedItem) {
+        val match = downloadedItem?.let { item -> allStreams.firstOrNull { it.matchesDownload(item) } }
+        if (match == null) allStreams else listOf(match) + allStreams.filterNot { it === match }
+    }
+    val downloadedStream = remember(allStreams, downloadedItem) {
+        downloadedItem?.let { item -> allStreams.firstOrNull { it.matchesDownload(item) } }
+    }
+    val downloadedLabel = if (downloadedItem?.status == DownloadStatus.Completed) {
+        stringResource(Res.string.streams_downloaded_label)
+    } else {
+        stringResource(Res.string.streams_downloading_label)
+    }
     val visibleGroups = streamsUiState.filteredGroups
     val listState = rememberLazyListState()
     var userScrolledList by remember { mutableStateOf(false) }
@@ -118,6 +137,8 @@ internal fun PlayerStreamList(
                 scrolledToCurrent = true
                 listState.scrollToItem(currentStreamIndex)
             }
+            val playingSavedFile = downloadedItem != null &&
+                currentStream?.url?.let { it.isNotBlank() && !it.startsWith("http", ignoreCase = true) } == true
             val formatStreamSize = rememberStreamSizeLabelFormat()
             CompositionLocalProvider(LocalStreamSizeLabelFormat provides formatStreamSize) {
             LazyColumn(
@@ -130,6 +151,10 @@ internal fun PlayerStreamList(
                     items = streams,
                     key = { index, _ -> streamKeys[index] },
                 ) { index, stream ->
+                    val isDownloaded = stream === downloadedStream
+                    // Playing the saved file shows no stream link, so it counts as playing the
+                    // downloaded stream.
+                    val isPlaying = index == currentStreamIndex || (isDownloaded && playingSavedFile)
                     StreamCard(
                         stream = stream,
                         enabled = stream.isSelectableForPlayback(debridSettings.canResolvePlayableLinks),
@@ -138,8 +163,12 @@ internal fun PlayerStreamList(
                         showFileSizeBadges = streamBadgeSettings.showFileSizeBadges,
                         showAddonLogo = streamBadgeSettings.showAddonLogo,
                         badgePlacement = streamBadgeSettings.badgePlacement,
-                        isCurrent = index == currentStreamIndex,
-                        currentLabel = currentLabel,
+                        isCurrent = isPlaying || isDownloaded,
+                        currentLabel = when {
+                            isPlaying -> currentLabel
+                            else -> downloadedLabel
+                        },
+                        secondaryLabel = if (isPlaying && isDownloaded) downloadedLabel else null,
                         onClick = { onStreamSelected(stream) },
                     )
                 }

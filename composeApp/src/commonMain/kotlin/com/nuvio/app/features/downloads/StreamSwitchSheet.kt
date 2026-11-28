@@ -5,9 +5,10 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -74,9 +75,7 @@ internal fun StreamSwitchSheet(
 
     NuvioModalBottomSheet(onDismissRequest = dismiss, sheetState = sheetState, fullHeight = true) {
         Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(bottom = nuvioSafeBottomPadding(16.dp)),
+            modifier = Modifier.fillMaxSize(),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -126,7 +125,10 @@ internal fun StreamSwitchSheet(
                     modifier = Modifier.padding(20.dp),
                 )
             } else {
-                LazyColumn(modifier = Modifier.heightIn(max = 560.dp)) {
+                LazyColumn(
+                    modifier = Modifier.weight(1f).fillMaxWidth(),
+                    contentPadding = PaddingValues(bottom = nuvioSafeBottomPadding(16.dp)),
+                ) {
                     choices.forEach { (group, streams) ->
                         item(key = "header:${group.addonId}") {
                             Text(

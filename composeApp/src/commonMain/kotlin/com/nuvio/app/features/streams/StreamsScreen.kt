@@ -71,6 +71,8 @@ import com.nuvio.app.core.ui.backdropControlColor
 import com.nuvio.app.core.ui.dismissNuvioBottomSheet
 import com.nuvio.app.core.ui.featherArtwork
 import com.nuvio.app.core.ui.rememberArtworkBackdrop
+import com.nuvio.app.features.downloads.DownloadItem
+import com.nuvio.app.features.downloads.DownloadStatus
 import com.nuvio.app.features.downloads.DownloadsRepository
 import com.nuvio.app.features.details.MetaScreenSettingsRepository
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
@@ -158,6 +160,15 @@ fun StreamsScreen(
     }.collectAsStateWithLifecycle()
     remember {
         DownloadsRepository.ensureLoaded()
+    }
+    val downloadsUiState by DownloadsRepository.uiState.collectAsStateWithLifecycle()
+    val downloadedItem = remember(downloadsUiState.items, videoId, seasonNumber, episodeNumber) {
+        downloadsUiState.items.firstOrNull { item ->
+            item.status != DownloadStatus.Failed &&
+                item.videoId == videoId &&
+                item.seasonNumber == seasonNumber &&
+                item.episodeNumber == episodeNumber
+        }
     }
     val isEpisode = seasonNumber != null && episodeNumber != null
     val clipboardManager = LocalClipboardManager.current
@@ -263,6 +274,7 @@ fun StreamsScreen(
             )
         } else {
             MobileStreamsLayout(
+                downloadedItem = downloadedItem,
                 isEpisode = isEpisode,
                 backgroundMode = streamDisplaySettings.backgroundMode,
                 title = title,
@@ -418,6 +430,7 @@ private fun MobileStreamsLayout(
     episodeNumber: Int?,
     episodeTitle: String?,
     blurEpisodeThumbnail: Boolean,
+    downloadedItem: DownloadItem?,
     uiState: StreamsUiState,
     debridEnabled: Boolean,
     appendInstantServiceToDefaultName: Boolean,
@@ -472,6 +485,7 @@ private fun MobileStreamsLayout(
                 )
                 StreamList(
                     uiState = uiState,
+                    downloadedItem = downloadedItem,
                     debridEnabled = debridEnabled,
                     appendInstantServiceToDefaultName = appendInstantServiceToDefaultName,
                     onStreamSelected = onStreamSelected,
@@ -689,6 +703,7 @@ private fun EpisodeHeroBlock(
 @Composable
 internal fun StreamList(
     uiState: StreamsUiState,
+    downloadedItem: DownloadItem? = null,
     debridEnabled: Boolean,
     appendInstantServiceToDefaultName: Boolean,
     onStreamSelected: (stream: StreamItem, resumePositionMs: Long?, resumeProgressFraction: Float?) -> Unit,
@@ -697,7 +712,26 @@ internal fun StreamList(
     resumeProgressFraction: Float?,
     modifier: Modifier = Modifier,
 ) {
-    val filteredGroups = uiState.filteredGroups
+    val allFilteredGroups = uiState.filteredGroups
+    val downloadedStream = remember(allFilteredGroups, downloadedItem) {
+        downloadedItem?.let { item ->
+            allFilteredGroups.asSequence().flatMap { it.streams.asSequence() }
+                .firstOrNull { it.matchesDownload(item) }
+        }
+    }
+    val filteredGroups = remember(allFilteredGroups, downloadedStream) {
+        if (downloadedStream == null) allFilteredGroups
+        else allFilteredGroups.map { group ->
+            if (downloadedStream in group.streams) {
+                group.copy(streams = group.streams.filterNot { it === downloadedStream })
+            } else group
+        }
+    }
+    val downloadedLabel = if (downloadedItem?.status == DownloadStatus.Completed) {
+        stringResource(Res.string.streams_downloaded_label)
+    } else {
+        stringResource(Res.string.streams_downloading_label)
+    }
     val hasGroups = filteredGroups.isNotEmpty()
     val hasAnyStreams = filteredGroups.any { it.streams.isNotEmpty() }
     val anyLoading = filteredGroups.any { it.isLoading }
@@ -749,6 +783,25 @@ internal fun StreamList(
                         badgePlacement = streamBadgeSettings.badgePlacement,
                         onClick = { onStreamSelected(shared.stream, resumePositionMs, resumeProgressFraction) },
                         outlined = true,
+                    )
+                    Spacer(modifier = Modifier.height(10.dp))
+                }
+            }
+        }
+        downloadedStream?.let { stream ->
+            item(key = "downloaded_stream") {
+                Column {
+                    StreamCard(
+                        stream = stream,
+                        enabled = stream.isSelectableForPlayback(debridEnabled),
+                        appendInstantServiceToDefaultName = appendInstantServiceToDefaultName,
+                        showFileSizeBadges = streamBadgeSettings.showFileSizeBadges,
+                        showAddonLogo = streamBadgeSettings.showAddonLogo,
+                        badgePlacement = streamBadgeSettings.badgePlacement,
+                        onClick = { onStreamSelected(stream, resumePositionMs, resumeProgressFraction) },
+                        onLongClick = { onStreamLongPress(stream) },
+                        isCurrent = true,
+                        currentLabel = downloadedLabel,
                     )
                     Spacer(modifier = Modifier.height(10.dp))
                 }
@@ -1186,3 +1239,21 @@ private fun FooterLoadingBlock(
         )
     }
 }
+
+/** True when this stream is the one [item] was downloaded from. */
+internal fun StreamItem.matchesDownload(item: DownloadItem): Boolean {
+    val url = playableDirectUrl
+    if (url != null && url == item.sourceUrl) return true
+    val sameAddon = item.providerAddonId?.let { it == addonId } ?: (item.providerName == addonName)
+    if (!sameAddon || item.streamTitle != streamLabel) return false
+    if (item.streamSubtitle == streamSubtitle) return true
+    // Add-ons put details that drift between fetches (age, bitrate) in the description, so fall
+    // back to the file size it states.
+    val saved = item.streamSubtitle?.let(::descriptionSizeToken)
+    return saved != null && saved == streamSubtitle?.let(::descriptionSizeToken)
+}
+
+private val DescriptionSizeRegex = Regex("""(\d+(?:[.,]\d+)?)\s?(GB|MB|TB)""", RegexOption.IGNORE_CASE)
+
+private fun descriptionSizeToken(description: String): String? =
+    DescriptionSizeRegex.find(description)?.let { "${it.groupValues[1]}${it.groupValues[2].uppercase()}" }

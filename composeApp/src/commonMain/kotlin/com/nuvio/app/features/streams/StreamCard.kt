@@ -66,6 +66,7 @@ internal fun StreamCard(
     modifier: Modifier = Modifier,
     isCurrent: Boolean = false,
     currentLabel: String? = null,
+    secondaryLabel: String? = null,
     outlined: Boolean = false,
 ) {
     val partyLabel = if (isCurrent) null else LocalStreamHighlight.current(stream)
@@ -126,6 +127,10 @@ internal fun StreamCard(
                 if (isCurrent && !currentLabel.isNullOrBlank()) {
                     Spacer(modifier = Modifier.width(8.dp))
                     CurrentStreamBadge(label = currentLabel)
+                }
+                if (isCurrent && !secondaryLabel.isNullOrBlank()) {
+                    Spacer(modifier = Modifier.width(6.dp))
+                    CurrentStreamBadge(label = secondaryLabel)
                 }
                 if (partyLabel != null) {
                     Spacer(modifier = Modifier.width(8.dp))

@@ -35,6 +35,7 @@ fun PlayerSourcesPanel(
     onReload: () -> Unit,
     onDismiss: () -> Unit,
     modifier: Modifier = Modifier,
+    downloadedItem: com.nuvio.app.features.downloads.DownloadItem? = null,
 ) {
     val tokens = MaterialTheme.nuvio
     val contentLabel = if (currentSeason != null && currentEpisode != null) {
@@ -94,6 +95,7 @@ fun PlayerSourcesPanel(
                 modifier = Modifier.weight(1f),
                 currentStream = currentStream,
                 currentLabel = stringResource(Res.string.compose_player_playing),
+                downloadedItem = downloadedItem,
             )
         }
     }

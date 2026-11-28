@@ -76,6 +76,9 @@
     <string name="addons_refresh">Refresh addon</string>
     <string name="addons_section_add_addon">Add Addon</string>
     <string name="addons_section_installed">Installed Addons</string>
+    <string name="addons_reload_all_profiles">Reload addons for all profiles</string>
+    <string name="addons_reload_all_profiles_busy">Reloading…</string>
+    <string name="addons_reload_all_profiles_done">Reloaded %1$d addons across all profiles</string>
     <string name="addons_section_overview">Overview</string>
     <string name="addons_summary_id_rules">%1$d id rules</string>
     <string name="addons_version_format">Version %1$s</string>

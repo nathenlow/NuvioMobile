@@ -1,6 +1,10 @@
 package com.nuvio.app.features.player
 
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.nuvio.app.features.downloads.DownloadStatus
 import com.nuvio.app.features.details.MetaDetailsUiState
 import com.nuvio.app.features.details.MetaVideo
 import com.nuvio.app.features.downloads.DownloadsRepository
@@ -177,7 +181,17 @@ internal fun PlayerScreenModalHosts(
         onDismiss = onVideoSettingsModalDismissed,
     )
 
+    val downloadsUiState by DownloadsRepository.uiState.collectAsStateWithLifecycle()
+    val downloadedItem = remember(downloadsUiState.items, parentMetaId, activeSeasonNumber, activeEpisodeNumber) {
+        downloadsUiState.items.firstOrNull { item ->
+            item.status != DownloadStatus.Failed &&
+                item.parentMetaId.trim() == parentMetaId.trim() &&
+                item.seasonNumber == activeSeasonNumber &&
+                item.episodeNumber == activeEpisodeNumber
+        }
+    }
     PlayerSourcesPanel(
+        downloadedItem = downloadedItem,
         visible = showSourcesPanel,
         streamsUiState = sourceStreamsState,
         contentTitle = contentTitle,
